@@ -1,5 +1,9 @@
 # Staging baseline
 
+Review the authentication inventory and connectivity gates in
+[Credential and session security](CREDENTIAL-SECURITY.md) before adding any
+brokerage configuration.
+
 The first staging phase runs the real application image as an isolated,
 CLI-only container. It does not connect to Discord, a brokerage, or any
 network, and it is deliberately unable to place live orders:
