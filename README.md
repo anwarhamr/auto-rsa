@@ -32,6 +32,10 @@ See the [Installation Guide](docs/INSTALLATION.md) for detailed installation ins
 ## Usage
 See the [Usage Guide](docs/USAGE.md) for detailed usage instructions.
 
+## Staging
+See the [Staging Baseline](docs/STAGING.md) for a fail-closed Docker Compose
+configuration that cannot place live trades.
+
 ## Supported brokerages
 While the project was created by me, lots of work has been put in by the community to support and fix various brokerages. It wouldn't be possible without them, so go give them a ⭐!
 

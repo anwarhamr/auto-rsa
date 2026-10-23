@@ -72,6 +72,7 @@ except Exception as e:
 # Initialize .env file
 load_dotenv()
 DANGER_MODE = os.getenv("DANGER_MODE", "").lower() == "true"
+TRADING_DISABLED = os.getenv("TRADING_DISABLED", "").lower() == "true"
 
 
 def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-statements]
@@ -86,6 +87,9 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
     Functions are determined as: [broker_name] + <function_name>.
     So for example, fennel init -> fennel_init()
     """
+    if TRADING_DISABLED and not order_obj.get_holdings() and not order_obj.get_dry():
+        msg = "Live trading is disabled by TRADING_DISABLED"
+        raise ValueError(msg)
     total_value = 0
     for broker_info in order_obj.get_brokers():
         if broker_info in order_obj.get_notbrokers():
@@ -322,6 +326,9 @@ def main(args: list[str]) -> None:  # ruff: ignore[complex-structure, too-many-b
     if len(args) == 0:  # If no arguments, do nothing
         print("No arguments given, see README for usage")
         sys.exit(1)
+    if args[0].lower() == "healthcheck":
+        print("Auto RSA healthcheck passed")
+        return
     # Check if danger mode is enabled
     if DANGER_MODE:
         print("DANGER MODE ENABLED")

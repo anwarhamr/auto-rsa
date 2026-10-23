@@ -1,0 +1,41 @@
+services:
+  auto-rsa-staging:
+    build: .
+    image: auto-rsa:staging
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      # Staging is fail-closed: reject every non-dry transaction before login.
+      TRADING_DISABLED: "true"
+      DANGER_MODE: "false"
+      HEADLESS: "true"
+      # Never pass brokerage credentials into the staging container, even if
+      # they were accidentally added to the env file used by Compose.
+      BBAE: ""
+      CHASE: ""
+      DSPAC: ""
+      FENNEL: ""
+      FIDELITY: ""
+      FIRSTRADE: ""
+      PUBLIC_BROKER: ""
+      ROBINHOOD: ""
+      SCHWAB: ""
+      SCHWAB_ACCOUNT_NUMBERS: ""
+      SOFI: ""
+      TASTYTRADE: ""
+      TORNADO: ""
+      TRADIER: ""
+      VANGUARD: ""
+      VANGUARD_ACCOUNT_NUMBERS: ""
+      VG_ACCOUNT_NUMBERS: ""
+      WEBULL: ""
+      WELLSFARGO: ""
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "auto_rsa_bot", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
