@@ -82,3 +82,20 @@ The host must support Docker Compose and the image's target architecture, and
 it must provide the two external configuration files with access limited to
 the service operator. The CLI-only phase accepts no Discord or brokerage
 credential and no cached brokerage session data.
+
+## Later Chase credential trial
+
+Do not enable this during the CLI-only baseline. A separately authorized,
+network-enabled one-shot Chase trial must pass credentials through
+`RSA_BROKER_CREDENTIALS_FILE` using the exact version-1 JSON contract in
+[Credential and session security](CREDENTIAL-SECURITY.md). The path must be
+absolute and must name a mode-0600 FIFO or a mode-0600 regular file on `tmpfs`;
+the application consumes and unlinks it when possible. Keep `CHASE` empty and
+do not set `RSA_ALLOW_LEGACY_ENV_CREDENTIALS`.
+
+Chase browser state is temporary and deleted after each run by default. Do not
+set `RSA_CHASE_PROFILE_DIR` in staging. A durable profile is rejected unless
+`RSA_CHASE_ALLOW_DURABLE_PROFILE=true`, and that exception requires a separately
+reviewed, existing absolute directory owned by the service user with mode 0700
+and no symlink components. `TRADING_DISABLED=true` remains mandatory and its
+pre-login rejection behavior is unchanged by the Chase credential loader.

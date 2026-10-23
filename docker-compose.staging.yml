@@ -13,6 +13,10 @@ services:
       # they were accidentally added to the env file used by Compose.
       BBAE: ""
       CHASE: ""
+      RSA_BROKER_CREDENTIALS_FILE: ""
+      RSA_ALLOW_LEGACY_ENV_CREDENTIALS: "false"
+      RSA_CHASE_ALLOW_DURABLE_PROFILE: "false"
+      RSA_CHASE_PROFILE_DIR: ""
       DSPAC: ""
       FENNEL: ""
       FIDELITY: ""

@@ -5,10 +5,12 @@ brokerage is enabled in staging or production. It contains no secret values.
 
 ## Current trust model
 
-The application reads one colon-delimited environment variable per brokerage.
-Those values may contain usernames, passwords, API keys, refresh tokens, trading
-PINs, phone selectors, and TOTP seeds. `python-dotenv` also loads a local `.env`
-file. The default Compose deployment mounts `./creds` at `/app/creds`.
+Most brokerages still read one colon-delimited environment variable. Chase is
+the first hardened exception: it consumes a versioned JSON payload from a
+protected file/FIFO, and its old environment format is disabled by default.
+Other values may contain usernames, passwords, API keys, refresh tokens,
+trading PINs, phone selectors, and TOTP seeds. `python-dotenv` also loads a local
+`.env` file. The default Compose deployment mounts `./creds` at `/app/creds`.
 
 The current Discord control path is not an authorization boundary:
 
@@ -32,10 +34,11 @@ prior `creds/` state exists. Source inspection did not contact any brokerage.
   writes unencrypted cookie pickle files below `creds/`. The wrapper also logs
   raw challenge/login responses and can leave `captcha.png`
   (`src/brokerages/bbae_api.py:17-185`).
-- **Chase** — username/password, phone last four, and an 8-digit OTP. A durable
-  browser profile is placed below `creds/` (`src/brokerages/chase_api.py:20-123`).
-  The optional debug parser treats every nonempty value, including `False`, as
-  true (`src/brokerages/chase_api.py:79-85`).
+- **Chase** — username/password, phone last four, and an 8-digit OTP. Credentials
+  now use the typed, consumed input described below. Browser state is ephemeral
+  by default; debug is a JSON boolean. Durable browser state and legacy
+  colon-delimited environment credentials each require a separate explicit
+  opt-in.
 - **dSPAC** — username/password, CAPTCHA, and email/SMS OTP. The dependency
   writes unencrypted cookie pickle files below `creds/`; raw challenge/login
   responses and CAPTCHA files can be logged or left on disk
@@ -123,10 +126,56 @@ The practical remote-first flow is for 1Password CLI on an operator-controlled
 machine to require the operator's normal unlock/biometric approval, retrieve
 only the selected brokerage item, and stream a structured secret payload over
 SSH directly into the one-shot worker. Do not place the payload in command-line
-arguments, shell history, a remote file, Docker metadata, a ticket, Discord, or
-application logs. The current colon-delimited environment format should be
-replaced by a typed secret input on stdin or a worker-scoped file that is
-unlinked immediately after parsing.
+arguments, shell history, a remote persistent file, Docker metadata, a ticket,
+Discord, or application logs. Chase now implements the first typed,
+worker-scoped credential-file path; the other brokerages still require this
+migration.
+
+## Chase credential and profile contract
+
+Set `RSA_BROKER_CREDENTIALS_FILE` to an absolute path containing exactly this
+UTF-8 JSON shape (values below are placeholders):
+
+```json
+{
+  "version": 1,
+  "broker": "chase",
+  "accounts": [
+    {
+      "username": "operator-supplied username",
+      "password": "operator-supplied password",
+      "phone_last_four": "1234",
+      "debug": false
+    }
+  ]
+}
+```
+
+The input must be either a FIFO or a regular file on a Linux `tmpfs`, with no
+group or other permission bits. Symlinks and relative paths are rejected. The
+reader accepts at most 64 KiB, rejects duplicate/unknown/missing fields, requires
+schema version `1`, broker `chase`, a non-empty account list, a four-digit
+`phone_last_four`, and a JSON boolean for `debug`. It opens without following a
+symlink, verifies the opened object, unlinks an accepted path when possible,
+reads it once, and retains only typed in-process values. Error messages and
+credential object representations do not contain submitted values.
+
+`CHASE` is legacy-only. A non-empty `CHASE` value fails closed unless
+`RSA_ALLOW_LEGACY_ENV_CREDENTIALS=true`; the legacy form remains
+`username:password:phone-last-four[:true|false]`. Do not use that exception in
+staging or production. If both a structured input and a non-empty `CHASE` are
+configured, Chase rejects the ambiguous configuration.
+
+By default each Chase run uses a mode-0700 temporary browser profile and removes
+it when the run ends. Durable state requires both
+`RSA_CHASE_ALLOW_DURABLE_PROFILE=true` and `RSA_CHASE_PROFILE_DIR` naming an
+existing absolute, symlink-free directory owned by the process user with no
+group or other permission bits. Setting the directory without the opt-in, or
+the opt-in without the directory, fails closed. Durable state is sensitive
+session material and requires a separately reviewed expiry and revocation
+procedure. These credential and profile changes do not alter
+`TRADING_DISABLED`; it continues to reject explicit live orders before broker
+initialization.
 
 ## Required gates before broker connectivity
 

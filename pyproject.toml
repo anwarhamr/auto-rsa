@@ -73,13 +73,20 @@ ignore = [
     "PLR0913", # Allow too many arguments
     "PLR1702", # Allow many nested blocks
 ]
+"src/brokerages/chase_credentials.py" = [
+    "C901",    # Security validation is intentionally one fail-closed flow
+    "EM101",   # Fixed redacted messages are safe to define at the raise site
+    "EM102",   # Environment names are the only interpolated error content
+    "PLR0912", # Each credential invariant is checked independently
+    "TRY003",  # Dedicated exception type carries only redacted messages
+]
 
 [tool.ty.environment]
 root = ["src"]
 python-version = "3.12"
 
 [tool.ty.src]
-exclude = ["docs/*", "vulture_whitelist.py"]
+exclude = ["docs/*", "tests/*", "vulture_whitelist.py"]
 
 [tool.deptry]
 exclude = [
