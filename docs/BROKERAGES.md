@@ -16,16 +16,18 @@ Note: `BBAE_USERNAME` can either be email or phone number.
 
 #### Chase
 Made by [MaxxRK](https://github.com/MaxxRK/) using the [chaseinvest-api](https://github.com/MaxxRK/chaseinvest-api). Go give them a ⭐
-- `CHASE_USERNAME`
-- `CHASE_PASSWORD`
-- `CELL_PHONE_LAST_FOUR`
-Optional .env variables:
-- `DEBUG` (Set to `True` to enable debug mode)`
 
-`.env` file format:
-- `CHASE=CHASE_USERNAME:CHASE_PASSWORD:CELL_PHONE_LAST_FOUR:DEBUG`
+Chase credentials use `RSA_BROKER_CREDENTIALS_FILE`, an absolute protected FIFO
+or tmpfs file containing the typed version-1 JSON payload documented in
+[Credential and session security](CREDENTIAL-SECURITY.md). It contains username,
+password, four-digit phone suffix, and a JSON boolean `debug` for each account.
+The application consumes the input. The old `CHASE` colon-delimited format is
+disabled unless `RSA_ALLOW_LEGACY_ENV_CREDENTIALS=true` and should not be used
+for staging or production.
 
-Note 1: Chase MUST be set to  "classic trading experience". In order to do so navigate to `Trade` > `Stocks & ETFs` > click on a `trading account` > then click on  `Switch back to classic trading experience`.
+Chase MUST be set to "classic trading experience". Navigate to `Trade` >
+`Stocks & ETFs` > click a `trading account` > `Switch back to classic trading
+experience`.
 
 #### DSPAC
 Made by [ImNotOssy](https://github.com/ImNotOssy) using the [dSPAC_investing_api](https://github.com/ImNotOssy/dSPAC_investing_API). Go give them a ⭐ 

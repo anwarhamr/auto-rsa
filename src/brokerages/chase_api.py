@@ -1,17 +1,22 @@
 # Donald Ryan Gullett(MaxxRK)
 # Chase API
 
+from __future__ import annotations
+
 import asyncio
 import os
 import pprint
 import traceback
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from chase import account as ch_account
 from chase import order, session, symbols
-from discord.ext.commands import Bot
 from dotenv import load_dotenv
 
+if TYPE_CHECKING:
+    from discord.ext.commands import Bot
+
+from src.brokerages.chase_credentials import ChaseCredential, chase_profile_directory, load_chase_credentials
 from src.helper_api import Brokerage, StockOrder, get_otp_from_discord, print_all_holdings, print_and_discord
 
 
@@ -19,38 +24,36 @@ def chase_run(order_obj: StockOrder, bot_obj: Bot | None = None, loop: asyncio.A
     """Run all of the Chase API commands in a single function."""
     # Initialize .env file
     load_dotenv()
-    # Import Chase account
-    if not os.getenv("CHASE"):
+    accounts = load_chase_credentials()
+    if accounts is None:
         print("Chase not found, skipping...")
         return
-    accounts = os.environ["CHASE"].strip().split(",")
     # Get headless flag
     headless = os.getenv("HEADLESS", "true").lower() == "true"
 
-    # For each set of login info, i.e. seperate chase accounts
-    for account in accounts:
-        # Start at index 1 and go to how many logins we have
-        index = accounts.index(account) + 1
-        # Receive the chase broker class object and the AllAccount object related to it
-        chase_details = chase_init(
-            account=account,
-            index=index,
-            headless=headless,
-            bot_obj=bot_obj,
-            loop=loop,
-        )
-        if chase_details is not None:
-            order_obj.set_logged_in(chase_details[0], "chase")
-            if order_obj.get_holdings():
-                chase_holdings(chase_details[0], chase_details[1], loop=loop)
-            # Only other option is _transaction
-            else:
-                chase_transaction(
-                    chase_details[0],
-                    chase_details[1],
-                    order_obj,
-                    loop=loop,
-                )
+    # Keep the default browser profile only for the lifetime of this run.
+    with chase_profile_directory() as profile_path:
+        for index, account in enumerate(accounts, start=1):
+            chase_details = chase_init(
+                credential=account,
+                index=index,
+                headless=headless,
+                profile_path=profile_path,
+                bot_obj=bot_obj,
+                loop=loop,
+            )
+            if chase_details is not None:
+                order_obj.set_logged_in(chase_details[0], "chase")
+                if order_obj.get_holdings():
+                    chase_holdings(chase_details[0], chase_details[1], loop=loop)
+                # Only other option is _transaction
+                else:
+                    chase_transaction(
+                        chase_details[0],
+                        chase_details[1],
+                        order_obj,
+                        loop=loop,
+                    )
     return
 
 
@@ -64,7 +67,7 @@ def get_account_id(account_connectors: dict[str, str] | None, value: str) -> str
     return None
 
 
-def chase_init(account: str, index: int, *, headless: bool = True, bot_obj: Bot | None = None, loop: asyncio.AbstractEventLoop | None = None) -> tuple[Brokerage, ch_account.AllAccount] | None:
+def chase_init(credential: ChaseCredential, index: int, *, headless: bool = True, profile_path: str, bot_obj: Bot | None = None, loop: asyncio.AbstractEventLoop | None = None) -> tuple[Brokerage, ch_account.AllAccount] | None:
     """Log into chase. Checks for 2FA and gathers details on the chase accounts."""
     # Log in to Chase account
     print("Logging in to Chase...")
@@ -73,19 +76,15 @@ def chase_init(account: str, index: int, *, headless: bool = True, bot_obj: Bot 
     name = f"Chase {index}"
     ch_session: session.ChaseSession | None = None
     try:
-        # Split the login into into seperate items
-        user_pass = account.split(":")
-        # If the debug flag is present, use it, else set it to false
-        debug = bool(user_pass[3]) if len(user_pass) == 4 else False  # ruff: ignore[magic-value-comparison]
         # Create a ChaseSession class object which automatically configures and opens a browser
         ch_session = session.ChaseSession(
             title=f"chase_{index}",
             headless=headless,
-            profile_path="./creds",
-            debug=debug,
+            profile_path=profile_path,
+            debug=credential.debug,
         )
         # Login to chase
-        need_second = ch_session.login(user_pass[0], user_pass[1], int(user_pass[2]))
+        need_second = ch_session.login(credential.username, credential.password, int(credential.phone_last_four))
         # If 2FA is present, ask for code
         if need_second:
             if bot_obj is None and loop is None:
@@ -116,11 +115,11 @@ def chase_init(account: str, index: int, *, headless: bool = True, bot_obj: Bot 
             chase_obj.set_account_totals(name, chase_account.mask, chase_account.account_value)
             print_accounts.append(chase_account.mask)
         print(f"The following Chase accounts were found: {print_accounts}")
-    except Exception as e:
+    except Exception:
         if ch_session:
             ch_session.close_browser()
-        print(f"Error logging in to Chase: {e}")
-        print(traceback.format_exc())
+        # Dependency exceptions and tracebacks can contain submitted credentials.
+        print("Error logging in to Chase; sensitive details suppressed")
         return None
     return (chase_obj, all_accounts)
 
