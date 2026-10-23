@@ -1,10 +1,9 @@
 services:
   auto-rsa-staging:
-    build: .
-    image: auto-rsa:staging
+    image: ${RSA_IMAGE:?Set RSA_IMAGE to the exact staged image tag}
     restart: unless-stopped
     env_file:
-      - .env.staging
+      - ${RSA_STAGING_ENV_FILE:?Set RSA_STAGING_ENV_FILE to an absolute protected config path}
     environment:
       # Staging is fail-closed: reject every non-dry transaction before login.
       TRADING_DISABLED: "true"

@@ -18,10 +18,11 @@ no brokerage credentials.
 
 ## Required inputs
 
-Copy `.env.staging.example` to `.env.staging` on the staging host. The only
-secret required to start the bot is `DISCORD_TOKEN`, which must belong to a
-dedicated staging-only Discord bot. `DISCORD_CHANNEL` is the numeric ID of a
-dedicated staging-only channel and is not a secret. The bot must have Discord's
+Install `.env.staging.example` outside the release tree as a mode-0600 file,
+then set its absolute path through `RSA_STAGING_ENV_FILE`. The only secret
+required to start the bot is `DISCORD_TOKEN`, which must belong to a dedicated
+staging-only Discord bot. `DISCORD_CHANNEL` is the numeric ID of a dedicated
+staging-only channel and is not a secret. The bot must have Discord's
 message-content intent and permission to read and send messages in that
 channel.
 
@@ -30,26 +31,48 @@ numbers, or cached browser/session files. The normal application supports
 those through broker-specific environment variables in `.env` and files under
 `creds/`; staging intentionally supplies neither.
 
-## Build and start
+## Build and start manually
 
 ```bash
-cp .env.staging.example .env.staging
-# Set DISCORD_TOKEN and DISCORD_CHANNEL on the host, then:
-docker compose -f docker-compose.staging.yml config
-docker compose -f docker-compose.staging.yml build
-docker compose -f docker-compose.staging.yml up -d
+release_commit="$(git rev-parse HEAD)"
+export RSA_IMAGE="auto-rsa:staging-${release_commit}"
+export RSA_STAGING_ENV_FILE=/etc/rsa-auto-trader/staging.env
+docker build --pull --tag "$RSA_IMAGE" .
+docker compose -f docker-compose.staging.yml config --quiet
+docker compose -f docker-compose.staging.yml up -d --no-build
 docker compose -f docker-compose.staging.yml ps
 ```
+
+The deployment configuration deliberately has no image-tag or config-path
+fallback. Both values must be explicit so a release cannot silently use a
+mutable image or project-local credential file.
+
+## Linux boot service
+
+The appliance layout is:
+
+- immutable releases: `/opt/rsa-auto-trader/staging/releases/<git-commit>`
+- active release symlink: `/opt/rsa-auto-trader/staging/current`
+- staging application config: `/etc/rsa-auto-trader/staging.env`
+- deployment config: `/etc/rsa-auto-trader/staging-deploy.env`
+- systemd unit: `/etc/systemd/system/rsa-auto-trader-staging.service`
+
+Install the two config files with mode `0600`. Set `RSA_IMAGE` in the deployment
+config to the exact image tag built from the release and keep
+`RSA_STAGING_ENV_FILE=/etc/rsa-auto-trader/staging.env`. Install
+`deploy/systemd/rsa-auto-trader-staging.service`, reload systemd, and enable the
+service only after the dedicated staging Discord token and channel are present.
+The unit starts the prebuilt image with `--no-build` and recovers it after a
+reboot.
 
 Use `!ping` (or the configured prefix) as the first external smoke test. A live
 request such as `!rsa-staging buy 1 AAPL all false` must be rejected with
 `Live trading is disabled by TRADING_DISABLED` before broker initialization.
 
-## Host decision still required
+## Host requirements
 
-Before deployment, choose the staging host and secret-delivery mechanism. The
-host must support Docker Compose and the image's target architecture, and it
-must provide `.env.staging` outside source control with file access limited to
+The host must support Docker Compose and the image's target architecture, and
+it must provide the two external configuration files with access limited to
 the service operator. Also select the dedicated staging Discord bot/channel;
 production Discord credentials or any brokerage credential are not acceptable
 staging inputs.
