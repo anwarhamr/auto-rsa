@@ -3,6 +3,7 @@
 did.bin
 .DS_Store
 .env
+.env.staging
 .vscode/launch.json
 *.pkl
 *.png

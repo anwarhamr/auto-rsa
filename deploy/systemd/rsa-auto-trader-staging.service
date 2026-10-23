@@ -1,0 +1,20 @@
+[Unit]
+Description=RSA Auto Trader staging
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/etc/rsa-auto-trader/staging.env
+ConditionPathExists=/etc/rsa-auto-trader/staging-deploy.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/rsa-auto-trader/staging-deploy.env
+WorkingDirectory=/opt/rsa-auto-trader/staging/current
+ExecStart=/usr/bin/docker compose -f docker-compose.staging.yml -f docker-compose.staging-cli.yml up -d --no-build --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.staging.yml -f docker-compose.staging-cli.yml down
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
