@@ -1,0 +1,11 @@
+services:
+  auto-rsa-staging:
+    # First staging phase: keep the image running for operator-invoked CLI
+    # checks without connecting to Discord, brokerages, or any network.
+    entrypoint: ["sleep", "infinity"]
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
