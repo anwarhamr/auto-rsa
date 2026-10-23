@@ -25,6 +25,13 @@ The application consumes the input. The old `CHASE` colon-delimited format is
 disabled unless `RSA_ALLOW_LEGACY_ENV_CREDENTIALS=true` and should not be used
 for staging or production.
 
+If Chase requests a second factor, run from an interactive command/CLI terminal.
+The application accepts exactly 8 numeric digits through a local masked prompt,
+with a five-minute timeout and explicit `cancel`; it passes the code to the
+Chase library's `login_two()` method without logging or persisting it. Chase OTP
+collection through Discord is disabled, and Discord-initiated Chase MFA fails
+before account discovery.
+
 Chase MUST be set to "classic trading experience". Navigate to `Trade` >
 `Stocks & ETFs` > click a `trading account` > `Switch back to classic trading
 experience`.

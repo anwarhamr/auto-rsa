@@ -93,8 +93,14 @@ absolute and must name a mode-0600 FIFO or a mode-0600 regular file on `tmpfs`;
 the application consumes and unlinks it when possible. Keep `CHASE` empty and
 do not set `RSA_ALLOW_LEGACY_ENV_CREDENTIALS`.
 
-Chase browser state is temporary and deleted after each run by default. Do not
-set `RSA_CHASE_PROFILE_DIR` in staging. A durable profile is rejected unless
+Run an authorized Chase trial only from an interactive command/CLI terminal.
+If Chase requests MFA, the application reads the 8-digit code locally with
+masked, non-echoed input; the prompt supports `cancel` and expires after five
+minutes. Do not send Chase codes through Discord: that path is disabled.
+
+Chase browser state is temporary and deleted after each run by default,
+including MFA cancellation, timeout, and error. Do not set
+`RSA_CHASE_PROFILE_DIR` in staging. A durable profile is rejected unless
 `RSA_CHASE_ALLOW_DURABLE_PROFILE=true`, and that exception requires a separately
 reviewed, existing absolute directory owned by the service user with mode 0700
 and no symlink components. `TRADING_DISABLED=true` remains mandatory and its

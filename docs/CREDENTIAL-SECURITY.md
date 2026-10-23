@@ -166,8 +166,19 @@ credential object representations do not contain submitted values.
 staging or production. If both a structured input and a non-empty `CHASE` are
 configured, Chase rejects the ambiguous configuration.
 
+Chase second-factor entry is local-only. When `login()` indicates that a second
+factor is required, a command/CLI run reads the expected 8-digit numeric code
+from `/dev/tty` with terminal echo disabled and displays only masking
+characters. The prompt has a five-minute overall timeout and accepts `cancel`;
+invalid input, cancellation, timeout, or terminal failure stops authentication
+before account enumeration. The value is passed directly to `login_two()` and
+is never sent through Discord, written to a file, or included in an error or
+log. A Chase run initiated through Discord fails closed if second factor is
+required.
+
 By default each Chase run uses a mode-0700 temporary browser profile and removes
-it when the run ends. Durable state requires both
+it when the run ends. The browser is also closed and the temporary profile is
+removed after MFA cancellation, timeout, or error. Durable state requires both
 `RSA_CHASE_ALLOW_DURABLE_PROFILE=true` and `RSA_CHASE_PROFILE_DIR` naming an
 existing absolute, symlink-free directory owned by the process user with no
 group or other permission bits. Setting the directory without the opt-in, or
@@ -179,8 +190,8 @@ initialization.
 
 ## Required gates before broker connectivity
 
-1. Add an explicit Discord allowlist and bind every prompt/OTP to the initiating
-   user and request; reject concurrent or unmatched input.
+1. Add an explicit Discord allowlist and bind every remaining non-Chase prompt
+   to the initiating user and request; reject concurrent or unmatched input.
 2. Remove live trading from the always-on Discord process. It may propose plans,
    but only the one-shot worker may execute an approved plan.
 3. Replace raw exception/response forwarding with redacted structured errors;

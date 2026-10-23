@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import contextlib
 import os
 import pprint
 import traceback
@@ -14,10 +14,14 @@ from chase import order, session, symbols
 from dotenv import load_dotenv
 
 if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Callable
+
     from discord.ext.commands import Bot
 
 from src.brokerages.chase_credentials import ChaseCredential, chase_profile_directory, load_chase_credentials
-from src.helper_api import Brokerage, StockOrder, get_otp_from_discord, print_all_holdings, print_and_discord
+from src.brokerages.chase_mfa import ChaseMFAUnavailableError, collect_chase_mfa_code
+from src.helper_api import Brokerage, StockOrder, print_all_holdings, print_and_discord
 
 
 def chase_run(order_obj: StockOrder, bot_obj: Bot | None = None, loop: asyncio.AbstractEventLoop | None = None) -> None:
@@ -67,7 +71,16 @@ def get_account_id(account_connectors: dict[str, str] | None, value: str) -> str
     return None
 
 
-def chase_init(credential: ChaseCredential, index: int, *, headless: bool = True, profile_path: str, bot_obj: Bot | None = None, loop: asyncio.AbstractEventLoop | None = None) -> tuple[Brokerage, ch_account.AllAccount] | None:
+def chase_init(
+    credential: ChaseCredential,
+    index: int,
+    *,
+    headless: bool = True,
+    profile_path: str,
+    bot_obj: Bot | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
+    code_reader: Callable[[], str] = collect_chase_mfa_code,
+) -> tuple[Brokerage, ch_account.AllAccount] | None:
     """Log into chase. Checks for 2FA and gathers details on the chase accounts."""
     # Log in to Chase account
     print("Logging in to Chase...")
@@ -85,19 +98,12 @@ def chase_init(credential: ChaseCredential, index: int, *, headless: bool = True
         )
         # Login to chase
         need_second = ch_session.login(credential.username, credential.password, int(credential.phone_last_four))
-        # If 2FA is present, ask for code
+        # Chase second-factor values are accepted only from this process's local
+        # terminal. Discord mode fails closed before account enumeration.
         if need_second:
-            if bot_obj is None and loop is None:
-                ch_session.login_two(input("Enter code: "))
-            elif bot_obj is not None and loop is not None:
-                sms_code = asyncio.run_coroutine_threadsafe(
-                    get_otp_from_discord(bot_obj, name, code_len=8, loop=loop),
-                    loop,
-                ).result()
-                if sms_code is None:
-                    msg = f"Chase {index} code not received in time..."
-                    raise Exception(msg, loop)
-                ch_session.login_two(sms_code)
+            if bot_obj is not None or loop is not None:
+                raise ChaseMFAUnavailableError
+            ch_session.login_two(code_reader())
         # Create an AllAccounts class object using the current browser session. Holds information about all accounts
         all_accounts = ch_account.AllAccount(ch_session)
         # Get the account IDs and store in a list. The IDs are different than account numbers.
@@ -117,7 +123,8 @@ def chase_init(credential: ChaseCredential, index: int, *, headless: bool = True
         print(f"The following Chase accounts were found: {print_accounts}")
     except Exception:
         if ch_session:
-            ch_session.close_browser()
+            with contextlib.suppress(Exception):
+                ch_session.close_browser()
         # Dependency exceptions and tracebacks can contain submitted credentials.
         print("Error logging in to Chase; sensitive details suppressed")
         return None

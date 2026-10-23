@@ -24,23 +24,22 @@ from src.brokerages.chase_credentials import (
     load_chase_credentials,
     parse_chase_credentials,
 )
+from src.brokerages.chase_mfa import ChaseMFACancelledError, ChaseMFATimedOutError
 
 
 def payload(*, debug: bool = False, phone: str = "1234") -> bytes:
-    return json.dumps(
-        {
-            "version": 1,
-            "broker": "chase",
-            "accounts": [
-                {
-                    "username": "secret-user",
-                    "password": "secret-password",
-                    "phone_last_four": phone,
-                    "debug": debug,
-                }
-            ],
-        }
-    ).encode()
+    return json.dumps({
+        "version": 1,
+        "broker": "chase",
+        "accounts": [
+            {
+                "username": "secret-user",
+                "password": "secret-password",
+                "phone_last_four": phone,
+                "debug": debug,
+            }
+        ],
+    }).encode()
 
 
 class ChaseCredentialTests(unittest.TestCase):
@@ -145,15 +144,11 @@ class ChaseCredentialTests(unittest.TestCase):
             with self.assertRaises(ChaseCredentialError):
                 with chase_profile_directory({DURABLE_PROFILE_DIR_ENV: str(path)}):
                     pass
-            with chase_profile_directory(
-                {ALLOW_DURABLE_PROFILE_ENV: "true", DURABLE_PROFILE_DIR_ENV: str(path)}
-            ) as selected:
+            with chase_profile_directory({ALLOW_DURABLE_PROFILE_ENV: "true", DURABLE_PROFILE_DIR_ENV: str(path)}) as selected:
                 self.assertEqual(selected, str(path))
             path.chmod(0o750)
             with self.assertRaisesRegex(ChaseCredentialError, "permissions"):
-                with chase_profile_directory(
-                    {ALLOW_DURABLE_PROFILE_ENV: "true", DURABLE_PROFILE_DIR_ENV: str(path)}
-                ):
+                with chase_profile_directory({ALLOW_DURABLE_PROFILE_ENV: "true", DURABLE_PROFILE_DIR_ENV: str(path)}):
                     pass
 
     def test_chase_init_passes_typed_false_debug_and_selected_profile(self) -> None:
@@ -167,13 +162,19 @@ class ChaseCredentialTests(unittest.TestCase):
                 calls["login"] = (username, password, phone)
                 if calls.get("raise"):
                     raise RuntimeError(f"broker echoed {username} {password}")
-                return False
+                return bool(calls.get("need_second"))
+
+            def login_two(self, code: str) -> None:
+                calls["login_two"] = code
+                if calls.get("raise_second"):
+                    raise RuntimeError(f"broker echoed {code}")
 
             def close_browser(self) -> None:
-                pass
+                calls["closed"] = int(calls.get("closed", 0)) + 1
 
         class FakeAllAccount:
             def __init__(self, session: object) -> None:
+                calls["enumerated"] = int(calls.get("enumerated", 0)) + 1
                 self.account_connectors = {}
 
         class FakeBrokerage:
@@ -212,7 +213,6 @@ class ChaseCredentialTests(unittest.TestCase):
         helper_module = types.ModuleType("src.helper_api")
         helper_module.Brokerage = FakeBrokerage
         helper_module.StockOrder = object
-        helper_module.get_otp_from_discord = object
         helper_module.print_all_holdings = object
         helper_module.print_and_discord = object
 
@@ -240,6 +240,62 @@ class ChaseCredentialTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIs(calls["debug"], False)
         self.assertEqual(calls["profile_path"], "/ephemeral/profile")
+
+        calls["need_second"] = True
+        result = chase_api.chase_init(
+            ChaseCredential("secret-user", "secret-password", "1234", False),
+            1,
+            profile_path="/ephemeral/profile",
+            code_reader=lambda: "87654321",
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(calls["login_two"], "87654321")
+
+        before_enumeration = int(calls["enumerated"])
+        before_closed = int(calls.get("closed", 0))
+        discord_reader = mock.Mock(return_value="87654321")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            discord_result = chase_api.chase_init(
+                ChaseCredential("secret-user", "secret-password", "1234", False),
+                1,
+                profile_path="/ephemeral/profile",
+                bot_obj=object(),
+                loop=mock.Mock(),
+                code_reader=discord_reader,
+            )
+        self.assertIsNone(discord_result)
+        discord_reader.assert_not_called()
+        self.assertEqual(calls["enumerated"], before_enumeration)
+        self.assertEqual(calls["closed"], before_closed + 1)
+
+        for input_error in (
+            ChaseMFACancelledError(),
+            ChaseMFATimedOutError(),
+        ):
+            before_closed = int(calls.get("closed", 0))
+            with self.subTest(input_error=type(input_error).__name__), redirect_stdout(io.StringIO()):
+                failed = chase_api.chase_init(
+                    ChaseCredential("secret-user", "secret-password", "1234", False),
+                    1,
+                    profile_path="/ephemeral/profile",
+                    code_reader=mock.Mock(side_effect=input_error),
+                )
+            self.assertIsNone(failed)
+            self.assertEqual(calls["closed"], before_closed + 1)
+
+        calls["raise_second"] = True
+        output = io.StringIO()
+        with redirect_stdout(output):
+            failed = chase_api.chase_init(
+                ChaseCredential("secret-user", "secret-password", "1234", False),
+                1,
+                profile_path="/ephemeral/profile",
+                code_reader=lambda: "11223344",
+            )
+        self.assertIsNone(failed)
+        self.assertNotIn("11223344", output.getvalue())
+        self.assertGreater(int(calls["closed"]), before_closed)
 
         calls["raise"] = True
         output = io.StringIO()
