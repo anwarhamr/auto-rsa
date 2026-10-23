@@ -329,6 +329,9 @@ def main(args: list[str]) -> None:  # ruff: ignore[complex-structure, too-many-b
     if args[0].lower() == "healthcheck":
         print("Auto RSA healthcheck passed")
         return
+    if TRADING_DISABLED and args[0].lower() not in {"discord", "docker"} and args[-1].lower() == "false":
+        msg = "Live trading is disabled by TRADING_DISABLED"
+        raise ValueError(msg)
     # Check if danger mode is enabled
     if DANGER_MODE:
         print("DANGER MODE ENABLED")
