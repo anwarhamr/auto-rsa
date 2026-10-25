@@ -59,6 +59,7 @@ class RobinhoodAppliancePolicyTests(unittest.TestCase):
         self.assertIn("no-new-privileges:true", trader["security_opt"])
         self.assertEqual(trader["entrypoint"], ["auto_rsa_bot"])
         self.assertEqual(trader["environment"]["RSA_DISABLE_UPDATE_CHECK"], "true")
+        self.assertEqual(trader["environment"]["RSA_ROBINHOOD_ORDER_ACCOUNT_TYPE"], "")
         self.assertEqual(trader["environment"]["DISCORD_TOKEN"], "")
         self.assertEqual(trader["environment"]["ROBINHOOD"], "")
         self.assertEqual(trader["environment"]["HTTPS_PROXY"], "http://127.0.0.1:3128")

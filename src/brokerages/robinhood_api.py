@@ -51,6 +51,9 @@ _SAFE_FAILURE_MESSAGES = frozenset(
         "Robinhood holdings response was invalid",
         "Robinhood login response was invalid",
         "Robinhood login was not accepted",
+        "Robinhood order account routing was ambiguous",
+        "Robinhood order account type is invalid",
+        "Robinhood order account type is required",
         "Robinhood order response was invalid",
         "Robinhood order was rejected",
         "Robinhood quote response was invalid",
@@ -63,6 +66,8 @@ _SAFE_FAILURE_MESSAGES = frozenset(
     },
 )
 _GENERIC_FAILURE_MESSAGE = "Robinhood operation failed; sensitive details suppressed"
+_ORDER_ACCOUNT_TYPE_ENV = "RSA_ROBINHOOD_ORDER_ACCOUNT_TYPE"
+_ALLOWED_ORDER_ACCOUNT_TYPES = frozenset({"individual", "ira_roth", "ira_traditional"})
 
 
 def _redacted_failure_message(error: Exception) -> str:
@@ -177,6 +182,15 @@ def _order_message(response: object) -> str:
     return "Success"
 
 
+def _load_order_account_type(environment: Mapping[str, str]) -> str:
+    account_type = environment.get(_ORDER_ACCOUNT_TYPE_ENV, "").strip()
+    if not account_type:
+        raise RobinhoodRunError("Robinhood order account type is required")
+    if account_type not in _ALLOWED_ORDER_ACCOUNT_TYPES:
+        raise RobinhoodRunError("Robinhood order account type is invalid")
+    return account_type
+
+
 def _transactions_for_accounts(
     client: RobinhoodClient,
     accounts: list[str],
@@ -184,11 +198,16 @@ def _transactions_for_accounts(
     order_obj: StockOrder,
     loop: asyncio.AbstractEventLoop | None,
     *,
+    rho: Brokerage,
+    target_account_type: str,
     ensure_active: Callable[[], None],
 ) -> None:
+    target_accounts = [account for account in accounts if rho.get_account_types(name, account) == target_account_type]
+    if len(target_accounts) != 1:
+        raise RobinhoodRunError("Robinhood order account routing was ambiguous")
     for symbol in order_obj.get_stocks():
         print_and_discord(f"{name}: {order_obj.get_action()}ing {order_obj.get_amount()} of {symbol}", loop)
-        for account in accounts:
+        for account in target_accounts:
             ensure_active()
             print_account = mask_string(account)
             if order_obj.get_dry():
@@ -336,7 +355,16 @@ def robinhood_run(
                 if order_obj.get_holdings():
                     _holdings_for_accounts(api, rho, name, account_numbers, ensure_active)
                 else:
-                    _transactions_for_accounts(api, account_numbers, name, order_obj, loop, ensure_active=ensure_active)
+                    _transactions_for_accounts(
+                        api,
+                        account_numbers,
+                        name,
+                        order_obj,
+                        loop,
+                        rho=rho,
+                        target_account_type=_load_order_account_type(environment),
+                        ensure_active=ensure_active,
+                    )
                 print(f"Logged in to {name}")
             except Exception:
                 if session is not None:

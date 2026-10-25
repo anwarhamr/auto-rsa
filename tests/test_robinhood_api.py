@@ -81,7 +81,7 @@ class _Auth:
 
 class _Client:
     def __init__(self, profile: object | None = None, positions: object | None = None, order_response: object | None = None) -> None:
-        self.profile = profile if profile is not None else [{"account_number": "12345678", "portfolio_cash": "100.00", "brokerage_account_type": "cash"}]
+        self.profile = profile if profile is not None else [{"account_number": "12345678", "portfolio_cash": "100.00", "brokerage_account_type": "individual"}]
         self.positions_response = [] if positions is None else positions
         self.order_response = {"id": "order-id"} if order_response is None else order_response
         self.order_calls = 0
@@ -143,7 +143,7 @@ class RobinhoodRunTests(unittest.TestCase):
             robinhood_run(
                 order or _Order(),  # type: ignore[arg-type]
                 bot_obj=bot,  # type: ignore[arg-type]
-                environ={},
+                environ={"RSA_ROBINHOOD_ORDER_ACCOUNT_TYPE": "individual"},
                 authenticator=auth,  # type: ignore[arg-type]
                 client=client,  # type: ignore[arg-type]
                 code_reader=code_reader,  # type: ignore[arg-type]
@@ -225,6 +225,25 @@ class RobinhoodRunTests(unittest.TestCase):
         self.assertEqual(cache.removed, 1)
         self.assertNotIn(secret_user, output.getvalue())
         self.assertNotIn(secret_token, output.getvalue())
+
+    def test_dry_order_routes_to_exactly_one_selected_account_type(self) -> None:
+        account = RobinhoodAccount("primary", "private-user", "workflow")
+        session = RobinhoodBearerSession("Bearer", "access", 4600.0)
+        profile = [
+            {"account_number": "11111111", "portfolio_cash": "100.00", "brokerage_account_type": "individual"},
+            {"account_number": "22222222", "portfolio_cash": "100.00", "brokerage_account_type": "ira_roth"},
+            {"account_number": "33333333", "portfolio_cash": "100.00", "brokerage_account_type": "ira_traditional"},
+        ]
+        output = self.run_with(
+            account=account,
+            cache=_Cache(session),
+            auth=_Auth(session),
+            client=_Client(profile=profile),
+            order=_Order(dry=True),
+        )
+        self.assertIn("xxxx1111 Running in DRY mode", output)
+        self.assertNotIn("xxxx2222 Running in DRY mode", output)
+        self.assertNotIn("xxxx3333 Running in DRY mode", output)
 
     def test_malformed_order_response_fails_closed(self) -> None:
         account = RobinhoodAccount("primary", "private-user", "workflow")
