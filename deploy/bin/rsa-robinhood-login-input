@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import os
 import secrets
 import subprocess
 import sys
+import termios
 from pathlib import Path
 
 APP_UID = 10001
@@ -48,7 +48,40 @@ def _require_tmpfs(path: Path) -> None:
         raise RuntimeError("Robinhood runtime directory is not backed by tmpfs")
 
 
+def _read_masked(prompt: str, tty_path: str = "/dev/tty") -> str:
+    """Read one value from a terminal while displaying masking characters."""
+    value: list[str] = []
+    with open(tty_path, "r+", encoding="utf-8", buffering=1) as terminal:
+        descriptor = terminal.fileno()
+        original = termios.tcgetattr(descriptor)
+        hidden = termios.tcgetattr(descriptor)
+        hidden[3] &= ~(termios.ECHO | termios.ECHONL)
+        terminal.write(prompt)
+        terminal.flush()
+        try:
+            termios.tcsetattr(descriptor, termios.TCSADRAIN, hidden)
+            while True:
+                character = terminal.read(1)
+                if character in {"\n", "\r", ""}:
+                    terminal.write("\n")
+                    break
+                if character == "\x03":
+                    raise KeyboardInterrupt
+                if character in {"\x08", "\x7f"}:
+                    if value:
+                        value.pop()
+                        terminal.write("\b \b")
+                    continue
+                value.append(character)
+                terminal.write("*")
+        finally:
+            termios.tcsetattr(descriptor, termios.TCSADRAIN, original)
+            terminal.flush()
+    return "".join(value)
+
+
 def main() -> int:
+    """Capture and install one protected Robinhood login input set."""
     if os.geteuid() != 0:
         print("Run this helper through sudo on Walter.", file=sys.stderr)
         return 1
@@ -56,8 +89,8 @@ def main() -> int:
         print("A pending password input already exists; do not overwrite it.", file=sys.stderr)
         return 1
 
-    username = getpass.getpass("Robinhood username (stored): ")
-    password = getpass.getpass("Robinhood password (one-time): ")
+    username = input("Robinhood username (stored; visible here): ")
+    password = _read_masked("Robinhood password (one-time; masked): ")
     if not username or not password or any(char in username for char in "\r\n\x00") or "\x00" in password:
         print("Username and password must be non-empty single-line values.", file=sys.stderr)
         return 1
