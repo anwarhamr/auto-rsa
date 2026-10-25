@@ -299,6 +299,13 @@ def load_robinhood_passwords(
         if not required_names:
             return {}
         raise RobinhoodCredentialError("Robinhood one-time password input is required")
+    if not required_names:
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            return {}
+        except OSError as exc:
+            raise RobinhoodCredentialError("Unable to inspect Robinhood password input") from exc
     passwords = parse_robinhood_passwords(
         _read_protected_file(path, description="password input", consume=True, require_tmpfs=True, fifo_timeout=fifo_timeout),
     )

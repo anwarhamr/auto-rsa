@@ -108,6 +108,11 @@ class RobinhoodCredentialTests(unittest.TestCase):
                 load_robinhood_passwords({"primary"}, {PASSWORD_FILE_ENV: str(path)}, fifo_timeout=0.01)
             self.assertFalse(path.exists())
 
+    def test_missing_configured_password_input_is_ignored_when_cache_has_no_miss(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "passwords.json")
+            self.assertEqual(load_robinhood_passwords(set(), {PASSWORD_FILE_ENV: str(path)}), {})
+
     def test_supplied_password_input_is_consumed_even_when_cache_has_no_miss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory, "passwords.json")
