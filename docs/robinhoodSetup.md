@@ -1,11 +1,20 @@
-## How to Set Up Robinhood 2FA
-This guide will show you how to get your Robinhood TOTP secret, which is required for this bot to work if you have 2FA enabled.
+## How to set up Robinhood MFA
 
-Note: Be sure to save your TOTP secret to an authenticator app so you don't get locked out of your account!
+The bot never accepts or stores a Robinhood TOTP seed. Keep the seed only in an
+operator-controlled authenticator and enter the current one-time code through
+the worker's local terminal when prompted.
 
-1. Download a TOTP app. I recommend [Authy](https://authy.com/).
-2. Open the Robinhood app and go to your profile, then the 3 lines in the top left, then Security and privacy, then Two-factor authentication.
-3. Click "Set up" for "Authenticator App." Robinhood will show you a setup key. This is what you want to use as your TOTP secret in your `.env` file.
-4. Open Authy and click the `+` button to add a new account.
-5. Select `Enter key manually` and enter the TOTP secret from step 3.
-6. Done! Now use the TOTP secret from step 3 as your `ROBINHOOD_TOTP` in your `.env` file.
+1. In the Robinhood app, open **Security and privacy**, then
+   **Two-factor authentication**.
+2. Choose either Robinhood app approval or an authenticator app.
+3. If using an authenticator, enroll it directly in an operator-controlled app
+   and keep its setup key out of `.env`, account JSON, password input, images,
+   logs, and tickets.
+4. Set the account's `mfa` field to `workflow` for Robinhood app/email/SMS, or
+   `totp` for operator-entered authenticator codes.
+5. Start the one-shot worker from a local interactive terminal. TOTP, email, and
+   SMS codes are masked and bounded by the authentication deadline. Robinhood
+   MFA is unavailable through Discord.
+
+See [Credential and session security](CREDENTIAL-SECURITY.md) for the protected
+account/password JSON formats and tmpfs session requirements.

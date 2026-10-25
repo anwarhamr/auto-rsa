@@ -53,7 +53,7 @@ try:
     from src.brokerages.fidelity_api import fidelity_run
     from src.brokerages.firstrade_api import firstrade_holdings, firstrade_init, firstrade_transaction
     from src.brokerages.public_api import public_holdings, public_init, public_transaction
-    from src.brokerages.robinhood_api import robinhood_holdings, robinhood_init, robinhood_transaction
+    from src.brokerages.robinhood_api import robinhood_run
     from src.brokerages.schwab_api import schwab_holdings, schwab_init, schwab_transaction
     from src.brokerages.sofi_api import sofi_run
     from src.brokerages.tasty_api import tastytrade_holdings, tastytrade_init, tastytrade_transaction
@@ -125,7 +125,12 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
                 case BrokerName.PUBLIC:
                     success = public_init(loop=loop)
                 case BrokerName.ROBINHOOD:
-                    success = robinhood_init(loop=loop)
+                    th = ThreadHandler(
+                        robinhood_run,
+                        order_obj=order_obj,
+                        bot_obj=bot_obj,
+                        loop=loop,
+                    )
                 case BrokerName.SCHWAB:
                     success = schwab_init()
                 case BrokerName.SOFI:
@@ -189,8 +194,6 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
                         firstrade_holdings(logged_in_broker, loop)
                     case BrokerName.PUBLIC:
                         public_holdings(logged_in_broker, loop)
-                    case BrokerName.ROBINHOOD:
-                        robinhood_holdings(logged_in_broker, loop)
                     case BrokerName.SCHWAB:
                         schwab_holdings(logged_in_broker, loop)
                     case BrokerName.TASTYTRADE:
@@ -221,8 +224,6 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
                         firstrade_transaction(logged_in_broker, order_obj, loop)
                     case BrokerName.PUBLIC:
                         public_transaction(logged_in_broker, order_obj, loop)
-                    case BrokerName.ROBINHOOD:
-                        robinhood_transaction(logged_in_broker, order_obj, loop)
                     case BrokerName.SCHWAB:
                         schwab_transaction(logged_in_broker, order_obj, loop)
                     case BrokerName.TASTYTRADE:

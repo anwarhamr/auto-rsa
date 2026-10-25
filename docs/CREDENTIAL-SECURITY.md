@@ -54,11 +54,11 @@ prior `creds/` state exists. Source inspection did not contact any brokerage.
   saving behavior is dependency-controlled (`src/brokerages/firstrade_api.py:23-69`).
 - **Public** — long-lived API key. No application-configured disk state; derived
   access tokens remain in memory (`src/brokerages/public_api.py:22-59`).
-- **Robinhood** — username/password and phone-app verification. The documented
-  TOTP field is not consumed by the wrapper. Access, refresh, and device tokens
-  are stored unencrypted for 30-day sessions below `creds/`
-  (`src/brokerages/robinhood_api.py:16-75`). Cached tokens take precedence on
-  subsequent holdings and order operations (`src/brokerages/robinhood_api.py:80-118`).
+- **Robinhood** — protected durable usernames are separated from one-time
+  consumed passwords. App, email, SMS, and optional operator-entered TOTP
+  verification are bounded and local-only. The default one-hour session cache
+  is restricted to tmpfs and contains only access-token bearer state and its
+  expiry; refresh and device tokens are never persisted.
 - **Schwab** — username/password plus optional TOTP seed. Session cookies and
   credential/TOTP hashes are stored in `creds/schwabN.json`
   (`src/brokerages/schwab_api.py:22-84`).
@@ -187,6 +187,81 @@ session material and requires a separately reviewed expiry and revocation
 procedure. These credential and profile changes do not alter
 `TRADING_DISABLED`; it continues to reject explicit live orders before broker
 initialization.
+
+## Robinhood account, password, and session contract
+
+Robinhood no longer accepts colon-delimited credentials. Any non-empty
+`ROBINHOOD` value fails closed. Configure `RSA_ROBINHOOD_ACCOUNTS_FILE` as an
+absolute path to a mode-0600, current-user-owned, symlink-free regular file
+stored outside the image. Bind-mount it read-only into a one-shot worker. Its
+versioned UTF-8 JSON shape is:
+
+```json
+{
+  "version": 1,
+  "broker": "robinhood",
+  "accounts": [
+    {
+      "name": "primary",
+      "username": "operator@example.com",
+      "mfa": "workflow"
+    }
+  ]
+}
+```
+
+`name` is a unique stable local identifier. `username` is protected and never
+logged. `mfa` is `workflow` for Robinhood app/email/SMS verification or `totp`
+when the operator will type a current authenticator code; no TOTP seed is
+accepted or stored.
+
+For each configured identity without a valid cached session, set
+`RSA_ROBINHOOD_PASSWORD_FILE` to an absolute protected FIFO or mode-0600 regular
+file on Linux `tmpfs`. The accepted one-time payload is:
+
+```json
+{
+  "version": 1,
+  "broker": "robinhood",
+  "passwords": [
+    {"name": "primary", "password": "operator-supplied password"}
+  ]
+}
+```
+
+The reader rejects symlinks, foreign ownership, group/other permissions,
+oversized input, duplicate keys, unknown fields, and missing or extra account
+mappings. A regular password file must be unlinked before it is read; a FIFO is
+unlinked as soon as its first bytes arrive. Unlink failure is fatal, and FIFO
+open/read waits are capped at one minute. Passwords and verification codes
+remain only in worker memory until process exit.
+
+Set `RSA_ROBINHOOD_SESSION_DIR` to an existing absolute mode-0700 directory on
+Linux `tmpfs`, such as a dedicated directory below `/run`. Cache files are
+mode 0600, identity-bound by their hashed local account name and username, and
+contain exactly the bearer token type, access token, and expiry. They never
+contain a password, refresh token, device token, or TOTP seed. Expired or
+invalid files are removed on access. A cached bearer is activated directly;
+the application never asks `robin_stocks.login()` to load or relogin from a
+pickle/JSON token cache before holdings or orders.
+
+`RSA_ROBINHOOD_SESSION_TTL_SECONDS` defaults to `3600` and accepts only decimal
+values from `300` through `86400`. It controls the requested broker expiry and
+the locally enforced cache deadline. Missing or invalid configuration fails
+before account enumeration or an order.
+
+All MFA input uses `/dev/tty` with echo disabled and a single five-minute
+workflow deadline. App polling, email/SMS entry, request retries, and code
+submission attempts are bounded. Cancellation, timeout, rejection, malformed
+responses, unsupported challenges, or a missing local terminal fail closed.
+MFA is unavailable when Robinhood is invoked through Discord. Logs use fixed
+redacted errors and masked account numbers; usernames, passwords, codes,
+workflow/device identifiers, tokens, raw broker errors, and tracebacks are not
+forwarded.
+
+The account file, password FIFO/tmpfs, and session tmpfs must be mounted from
+outside the image by the appliance deployment. The checked-in staging baseline
+leaves all Robinhood paths empty and therefore disabled.
 
 ## Required gates before broker connectivity
 

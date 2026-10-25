@@ -101,20 +101,21 @@ Generate a Public API key [here](https://public.com/settings/v2/security/api).
 Note: Because Windows already has a `PUBLIC` environment variable, you will need to use `PUBLIC_BROKER` instead.
 
 ### Robinhood
-Made using [robin_stocks](https://github.com/jmfernandes/robin_stocks). Go give them a ⭐
+Made using the pinned `robin_stocks` fork.
 
-Required `.env` variables:
-- `ROBINHOOD_USERNAME`
-- `ROBINHOOD_PASSWORD`
-- `ROBINHOOD_TOTP` (If 2fa enabled, else NA)
+Required configuration:
+- `RSA_ROBINHOOD_ACCOUNTS_FILE`: protected durable username/account JSON outside the image
+- `RSA_ROBINHOOD_SESSION_DIR`: protected mode-0700 directory on Linux `tmpfs`
+- `RSA_ROBINHOOD_PASSWORD_FILE`: consumed FIFO or mode-0600 regular file on `tmpfs`, required only for accounts without a valid cached bearer
+- `RSA_ROBINHOOD_SESSION_TTL_SECONDS`: optional decimal TTL from 300 through 86400; default 3600
 
-`.env` file format:
-- With 2fa: `ROBINHOOD=ROBINHOOD_USERNAME:ROBINHOOD_PASSWORD:ROBINHOOD_TOTP`
-- Without 2fa: `ROBINHOOD=ROBINHOOD_USERNAME:ROBINHOOD_PASSWORD:NA`
-
-Configuring 2fa can be tricky, so follow this [guide](docs/robinhoodSetup.md).
-
-Note: Robinhood saves token cookies in the `creds` folder. These take precedence over the username/password set in the `.env` file. If you want to change accounts, you will need to delete the cookies in the `creds` folder for it to update.
+The account file chooses `workflow` (app/email/SMS) or `totp` MFA per identity.
+Codes are entered only through the local terminal and are never accepted from
+Discord. No TOTP seed, refresh token, or device token is stored. The tmpfs
+session cache retains only an expiring access-token bearer. The legacy
+`ROBINHOOD=username:password:...` environment format is disabled and fails
+closed. See [Credential and session security](CREDENTIAL-SECURITY.md) for the
+exact JSON schemas, path protections, and appliance mount contract.
 
 ### Schwab
 Made using the [schwab-api](https://github.com/itsjafer/schwab-api). Go give them a ⭐
