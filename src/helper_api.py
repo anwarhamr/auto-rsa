@@ -416,8 +416,14 @@ class ThreadHandler:
 
 
 def is_up_to_date() -> None:
-    """Check if the current version is up to date."""
-    response = requests.get("https://pypi.org/pypi/auto_rsa_bot/json", timeout=10)
+    """Check if the current version is up to date unless explicitly disabled."""
+    if os.getenv("RSA_DISABLE_UPDATE_CHECK", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    try:
+        response = requests.get("https://pypi.org/pypi/auto_rsa_bot/json", timeout=10)
+    except requests.RequestException:
+        print("Unable to check for an Auto RSA update; continuing")
+        return
     if not response.ok:
         print(f"Error checking for update: {response.status_code}")
         return

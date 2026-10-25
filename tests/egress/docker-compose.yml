@@ -1,0 +1,82 @@
+services:
+  fixture:
+    image: ${RSA_TEST_PROBE_IMAGE:?Set RSA_TEST_PROBE_IMAGE to the generated local probe image}
+    pull_policy: never
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["python"]
+    command: ["/policy-test/probe.py", "serve", "--cert", "/policy-test/tls/cert.pem", "--key", "/policy-test/tls/key.pem"]
+    networks:
+      policy-test:
+        ipv4_address: 198.18.0.10
+
+  gateway:
+    image: ${RSA_TEST_GATEWAY_IMAGE:?Set RSA_TEST_GATEWAY_IMAGE to the generated local gateway image}
+    pull_policy: never
+    stop_grace_period: 5s
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETGID
+      - SETPCAP
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - api.robinhood.com=198.18.0.10
+    tmpfs:
+      - /run/squid:uid=10002,gid=10002,mode=0750,size=1m
+      - /tmp:uid=10002,gid=10002,mode=0700,size=8m
+      - /var/log/squid:uid=10002,gid=10002,mode=0750,size=4m
+      - /var/spool/squid:uid=10002,gid=10002,mode=0750,size=4m
+    healthcheck:
+      test: ["CMD-SHELL", "nft list chain inet rsa_egress output >/dev/null && setpriv --reuid=10001 --regid=10001 --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all perl -MIO::Socket::INET -e 'exit(IO::Socket::INET->new(PeerAddr=>q(127.0.0.1),PeerPort=>3128,Proto=>q(tcp),Timeout=>1)?0:1)'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+      start_period: 2s
+    networks:
+      policy-test:
+        ipv4_address: 198.18.0.20
+
+  trader:
+    image: ${RSA_TEST_PROBE_IMAGE:?Set RSA_TEST_PROBE_IMAGE to the generated local probe image}
+    pull_policy: never
+    network_mode: service:gateway
+    depends_on:
+      fixture:
+        condition: service_started
+      gateway:
+        condition: service_healthy
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HTTPS_PROXY: http://127.0.0.1:3128
+      HTTP_PROXY: http://127.0.0.1:3128
+      ALL_PROXY: http://127.0.0.1:3128
+      NO_PROXY: ""
+      https_proxy: http://127.0.0.1:3128
+      http_proxy: http://127.0.0.1:3128
+      all_proxy: http://127.0.0.1:3128
+      no_proxy: ""
+    entrypoint: ["python"]
+    command: ["/policy-test/probe.py", "probe", "--ca", "/policy-test/tls/cert.pem"]
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700,size=8m
+
+networks:
+  policy-test:
+    ipam:
+      config:
+        - subnet: 198.18.0.0/24

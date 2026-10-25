@@ -1,0 +1,3 @@
+ARG BASE_IMAGE=rsa-robinhood-egress:egress-test
+FROM ${BASE_IMAGE}
+COPY --chmod=0444 nftables.test.conf /etc/rsa-egress/nftables.conf

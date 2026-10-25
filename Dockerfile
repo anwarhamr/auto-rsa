@@ -52,7 +52,9 @@ ENV TZ=America/New_York \
     PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers
 
 WORKDIR /app
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# The appliance egress policy identifies the trader by this fixed unprivileged
+# UID. Keep it distinct from the gateway proxy UID (10002).
+RUN useradd --uid 10001 --user-group --create-home appuser && chown -R appuser:appuser /app
 
 # Install other dependencies
 # hadolint ignore=DL3008

@@ -1,0 +1,112 @@
+services:
+  robinhood-egress:
+    image: ${RSA_EGRESS_IMAGE:?Set RSA_EGRESS_IMAGE to an immutable digest reference}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 5s
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETGID
+      - SETPCAP
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run/squid:uid=10002,gid=10002,mode=0750,size=1m
+      - /tmp:uid=10002,gid=10002,mode=0700,size=8m
+      - /var/log/squid:uid=10002,gid=10002,mode=0750,size=4m
+      - /var/spool/squid:uid=10002,gid=10002,mode=0750,size=4m
+    healthcheck:
+      test: ["CMD-SHELL", "nft list chain inet rsa_egress output >/dev/null && setpriv --reuid=10001 --regid=10001 --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all perl -MIO::Socket::INET -e 'exit(IO::Socket::INET->new(PeerAddr=>q(127.0.0.1),PeerPort=>3128,Proto=>q(tcp),Timeout=>1)?0:1)'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - robinhood-egress
+
+  trader:
+    profiles: ["run"]
+    image: ${RSA_IMAGE:?Set RSA_IMAGE to an immutable digest reference}
+    pull_policy: never
+    network_mode: service:robinhood-egress
+    depends_on:
+      robinhood-egress:
+        condition: service_healthy
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stdin_open: true
+    tty: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700,size=64m
+    volumes:
+      - type: bind
+        source: ${RSA_ROBINHOOD_ACCOUNTS_FILE_HOST:?Set RSA_ROBINHOOD_ACCOUNTS_FILE_HOST to the protected account file}
+        target: /run/robinhood-config/accounts.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${RSA_ROBINHOOD_RUNTIME_DIR:?Set RSA_ROBINHOOD_RUNTIME_DIR to a protected host tmpfs directory}
+        target: /run/robinhood
+        bind:
+          create_host_path: false
+    environment:
+      HTTPS_PROXY: http://127.0.0.1:3128
+      HTTP_PROXY: http://127.0.0.1:3128
+      ALL_PROXY: http://127.0.0.1:3128
+      NO_PROXY: ""
+      https_proxy: http://127.0.0.1:3128
+      http_proxy: http://127.0.0.1:3128
+      all_proxy: http://127.0.0.1:3128
+      no_proxy: ""
+      RSA_DISABLE_UPDATE_CHECK: "true"
+      RSA_ROBINHOOD_ACCOUNTS_FILE: /run/robinhood-config/accounts.json
+      RSA_ROBINHOOD_PASSWORD_FILE: /run/robinhood/passwords.json
+      RSA_ROBINHOOD_SESSION_DIR: /run/robinhood/sessions
+      RSA_ROBINHOOD_SESSION_TTL_SECONDS: ${RSA_ROBINHOOD_SESSION_TTL_SECONDS:-3600}
+      ROBINHOOD: ""
+      DISCORD_TOKEN: ""
+      DISCORD_CHANNEL: ""
+      TRADING_DISABLED: ${TRADING_DISABLED:-true}
+      DANGER_MODE: ${DANGER_MODE:-false}
+      HEADLESS: "true"
+      PYTHONDONTWRITEBYTECODE: "1"
+      BBAE: ""
+      CHASE: ""
+      RSA_BROKER_CREDENTIALS_FILE: ""
+      RSA_ALLOW_LEGACY_ENV_CREDENTIALS: "false"
+      RSA_CHASE_ALLOW_DURABLE_PROFILE: "false"
+      RSA_CHASE_PROFILE_DIR: ""
+      DSPAC: ""
+      FENNEL: ""
+      FIDELITY: ""
+      FIRSTRADE: ""
+      PUBLIC_BROKER: ""
+      SCHWAB: ""
+      SCHWAB_ACCOUNT_NUMBERS: ""
+      SOFI: ""
+      TASTYTRADE: ""
+      TORNADO: ""
+      TRADIER: ""
+      VANGUARD: ""
+      VANGUARD_ACCOUNT_NUMBERS: ""
+      VG_ACCOUNT_NUMBERS: ""
+      WEBULL: ""
+      WELLSFARGO: ""
+    entrypoint: ["auto_rsa_bot"]
+
+networks:
+  robinhood-egress:
+    driver: bridge
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"

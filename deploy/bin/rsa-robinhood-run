@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+DEPLOY_ENV=${RSA_ROBINHOOD_DEPLOY_ENV:-/etc/rsa-auto-trader/robinhood-deploy.env}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+RELEASE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+COMPOSE_FILE=$RELEASE_DIR/docker-compose.robinhood.yml
+
+if [ ! -r "$DEPLOY_ENV" ]; then
+    echo "Robinhood appliance deployment configuration is unavailable" >&2
+    exit 1
+fi
+
+case "${1-}" in
+    healthcheck)
+        [ "$#" -eq 1 ] || { echo "Invalid healthcheck arguments" >&2; exit 2; }
+        ;;
+    holdings)
+        [ "$#" -eq 2 ] && [ "$2" = robinhood ] || {
+            echo "Only 'holdings robinhood' is accepted" >&2
+            exit 2
+        }
+        ;;
+    buy|sell)
+        [ "$#" -ge 4 ] && [ "$#" -le 5 ] && [ "$4" = robinhood ] || {
+            echo "Only one Robinhood brokerage command is accepted" >&2
+            exit 2
+        }
+        if [ "$#" -eq 5 ] && [ "$5" != true ] && [ "$5" != false ]; then
+            echo "The optional dry-run argument must be true or false" >&2
+            exit 2
+        fi
+        ;;
+    *)
+        echo "Accepted commands: healthcheck, holdings robinhood, buy/sell <amount> <symbols> robinhood [true|false]" >&2
+        exit 2
+        ;;
+esac
+
+exec docker compose \
+    --env-file "$DEPLOY_ENV" \
+    -f "$COMPOSE_FILE" \
+    run --rm trader "$@"

@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=auto-rsa:egress-test
+FROM ${BASE_IMAGE}
+USER root
+RUN install -d -o 10001 -g 10001 -m 0755 /policy-test /policy-test/tls
+COPY --chown=10001:10001 --chmod=0444 probe.py /policy-test/probe.py
+COPY --chown=10001:10001 --chmod=0444 cert.pem key.pem /policy-test/tls/
+USER 10001:10001

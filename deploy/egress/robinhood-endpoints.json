@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "dependency": {
+    "name": "robin-stocks",
+    "revision": "1ba446970f7bac5c4c0ac96390ae9e3f7a9b9d0e"
+  },
+  "allowed": [
+    {
+      "host": "api.robinhood.com",
+      "port": 443,
+      "reason": "Current login, phone-app verification, account, holdings, quote, and equity-order flows"
+    }
+  ],
+  "classified_denied": [
+    {
+      "host": "bonfire.robinhood.com",
+      "reason": "Present in the dependency for unused transfer, recurring-investment, and IPO flows"
+    },
+    {
+      "host": "minerva.robinhood.com",
+      "reason": "Present in the dependency for unused transaction-history flows"
+    },
+    {
+      "host": "nummus.robinhood.com",
+      "reason": "Present in the dependency for unused cryptocurrency flows"
+    },
+    {
+      "host": "phoenix.robinhood.com",
+      "reason": "Present in the dependency for unused unified-account flows"
+    }
+  ]
+}
