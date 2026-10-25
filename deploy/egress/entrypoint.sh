@@ -15,6 +15,17 @@ nft delete table inet rsa_egress 2>/dev/null || true
 nft -f "$POLICY_FILE"
 nft list chain inet rsa_egress output >/dev/null
 
+# Fail closed if Docker DNS translation and the nftables policy do not compose.
+# Run the probe as the same unprivileged UID that Squid uses at runtime.
+setpriv \
+    --reuid=10002 \
+    --regid=10002 \
+    --clear-groups \
+    --inh-caps=-all \
+    --ambient-caps=-all \
+    --bounding-set=-all \
+    perl -MSocket -e 'exit(gethostbyname(q(api.robinhood.com)) ? 0 : 1)'
+
 # Squid needs no privilege: its listener is unprivileged and all writable paths
 # are tmpfs mounts. Remove every inherited capability before starting it.
 exec setpriv \

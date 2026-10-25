@@ -93,7 +93,14 @@ class RobinhoodAppliancePolicyTests(unittest.TestCase):
         self.assertNotIn("udp dport 443 accept", policy)
         self.assertNotIn("meta skuid 10002 tcp dport 443 accept", policy)
         self.assertIn("meta skuid 10002 meta nfproto ipv4 tcp dport 443 accept", policy)
-        self.assertIn("meta skuid 10002 meta nfproto ipv4 udp dport 53 accept", policy)
+        self.assertIn("meta skuid 10002 ip daddr 127.0.0.11 meta l4proto udp accept", policy)
+        self.assertIn('iifname "lo" ip daddr 127.0.0.11 meta l4proto udp accept', policy)
+        self.assertIn('iifname "lo" ip saddr 127.0.0.11 udp sport 53 accept', policy)
+
+    def test_gateway_fails_closed_when_proxy_uid_cannot_resolve(self) -> None:
+        entrypoint = (POLICY_DIR / "entrypoint.sh").read_text(encoding="utf-8")
+        self.assertIn("--reuid=10002", entrypoint)
+        self.assertIn("gethostbyname(q(api.robinhood.com))", entrypoint)
 
     def test_proxy_is_connect_only_exact_host_and_port(self) -> None:
         proxy = (POLICY_DIR / "squid.conf").read_text(encoding="utf-8")
