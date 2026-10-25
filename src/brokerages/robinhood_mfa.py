@@ -58,7 +58,9 @@ class RobinhoodMFAUnavailableError(RobinhoodMFAError):
 
 
 def _open_local_terminal() -> TextIO:
-    return Path("/dev/tty").open("r+", encoding="utf-8", buffering=1)
+    # A read/write TextIOWrapper requires seek synchronization and fails on
+    # Linux SSH pseudo-terminals. MFA only reads here; prompts use stderr.
+    return Path("/dev/tty").open("r", encoding="utf-8", buffering=1)
 
 
 def _read_masked_line(stream: TextIO, output: TextIO, timeout: float) -> str:

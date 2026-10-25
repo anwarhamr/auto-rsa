@@ -70,6 +70,12 @@ def callbacks(codes: list[str] | None = None) -> RobinhoodAuthCallbacks:
 
 
 class RobinhoodMFAInputTests(unittest.TestCase):
+    def test_local_terminal_is_opened_read_only_for_nonseekable_ssh_ttys(self) -> None:
+        terminal = mock.Mock()
+        with mock.patch.object(robinhood_mfa.Path, "open", return_value=terminal) as terminal_open:
+            self.assertIs(robinhood_mfa._open_local_terminal(), terminal)
+        terminal_open.assert_called_once_with("r", encoding="utf-8", buffering=1)
+
     def test_code_is_masked_and_never_echoed(self) -> None:
         output = io.StringIO()
         with mock.patch.object(robinhood_mfa, "_read_masked_line", return_value="654321"):
