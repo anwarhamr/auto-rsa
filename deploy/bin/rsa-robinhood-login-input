@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Capture Robinhood login inputs locally without exposing them to argv or logs."""
+
+from __future__ import annotations
+
+import getpass
+import json
+import os
+import secrets
+import subprocess
+import sys
+from pathlib import Path
+
+APP_UID = 10001
+APP_GID = 10001
+ACCOUNT_PATH = Path("/etc/rsa-auto-trader/robinhood-accounts.json")
+RUNTIME_DIR = Path("/run/rsa-auto-trader/robinhood")
+PASSWORD_PATH = RUNTIME_DIR / "passwords.json"
+SESSION_DIR = RUNTIME_DIR / "sessions"
+
+
+def _atomic_write(path: Path, payload: dict[str, object], uid: int, gid: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode()
+        os.write(descriptor, encoded)
+        os.fchmod(descriptor, 0o600)
+        os.fchown(descriptor, uid, gid)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, path)
+
+
+def _require_tmpfs(path: Path) -> None:
+    result = subprocess.run(
+        ["findmnt", "-n", "-o", "FSTYPE", "--target", str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout.strip() != "tmpfs":
+        raise RuntimeError("Robinhood runtime directory is not backed by tmpfs")
+
+
+def main() -> int:
+    if os.geteuid() != 0:
+        print("Run this helper through sudo on Walter.", file=sys.stderr)
+        return 1
+    if PASSWORD_PATH.exists() or PASSWORD_PATH.is_symlink():
+        print("A pending password input already exists; do not overwrite it.", file=sys.stderr)
+        return 1
+
+    username = getpass.getpass("Robinhood username (stored): ")
+    password = getpass.getpass("Robinhood password (one-time): ")
+    if not username or not password or any(char in username for char in "\r\n\x00") or "\x00" in password:
+        print("Username and password must be non-empty single-line values.", file=sys.stderr)
+        return 1
+
+    try:
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chown(RUNTIME_DIR, APP_UID, APP_GID)
+        os.chmod(RUNTIME_DIR, 0o700)
+        _require_tmpfs(RUNTIME_DIR)
+        SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
+        os.chown(SESSION_DIR, APP_UID, APP_GID)
+        os.chmod(SESSION_DIR, 0o700)
+        _atomic_write(
+            ACCOUNT_PATH,
+            {
+                "version": 1,
+                "broker": "robinhood",
+                "accounts": [
+                    {"name": "primary", "username": username, "mfa": "workflow"}
+                ],
+            },
+            APP_UID,
+            APP_GID,
+        )
+        _atomic_write(
+            PASSWORD_PATH,
+            {
+                "version": 1,
+                "broker": "robinhood",
+                "passwords": [{"name": "primary", "password": password}],
+            },
+            APP_UID,
+            APP_GID,
+        )
+    except Exception:
+        PASSWORD_PATH.unlink(missing_ok=True)
+        print("Protected input setup failed; no password input was retained.", file=sys.stderr)
+        return 1
+
+    print("Protected Robinhood inputs are ready. The password file is one-time and tmpfs-only.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
