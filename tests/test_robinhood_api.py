@@ -13,15 +13,23 @@ from src.brokerages.robinhood_session import RobinhoodBearerSession
 
 
 class _Order:
-    def __init__(self, *, holdings: bool = False, dry: bool = True) -> None:
+    def __init__(self, *, holdings: bool = False, open_orders: bool = False, dry: bool = True, price: str | float = "market") -> None:
         self.holdings = holdings
+        self.open_orders = open_orders
         self.dry = dry
+        self.price = price
 
     def get_holdings(self) -> bool:
         return self.holdings
 
+    def get_open_orders(self) -> bool:
+        return self.open_orders
+
     def get_dry(self) -> bool:
         return self.dry
+
+    def get_price(self) -> str | float:
+        return self.price
 
     def get_stocks(self) -> list[str]:
         return ["TEST"]
@@ -80,11 +88,19 @@ class _Auth:
 
 
 class _Client:
-    def __init__(self, profile: object | None = None, positions: object | None = None, order_response: object | None = None) -> None:
+    def __init__(
+        self,
+        profile: object | None = None,
+        positions: object | None = None,
+        order_response: object | None = None,
+        open_orders: object | None = None,
+    ) -> None:
         self.profile = profile if profile is not None else [{"account_number": "12345678", "portfolio_cash": "100.00", "brokerage_account_type": "individual"}]
         self.positions_response = [] if positions is None else positions
         self.order_response = {"id": "order-id"} if order_response is None else order_response
+        self.open_orders_response = [] if open_orders is None else open_orders
         self.order_calls = 0
+        self.order_kwargs: list[dict[str, object]] = []
 
     def account_profile(self) -> object:
         return self.profile
@@ -98,9 +114,13 @@ class _Client:
     def latest_price(self, _symbol: str, _price_type: str | None = None) -> object:
         return ["10.00"]
 
-    def order(self, **_kwargs: object) -> object:
+    def order(self, **kwargs: object) -> object:
         self.order_calls += 1
+        self.order_kwargs.append(kwargs)
         return self.order_response
+
+    def open_stock_orders(self, _account_number: str) -> object:
+        return self.open_orders_response
 
 
 class RobinhoodRunTests(unittest.TestCase):
@@ -244,6 +264,57 @@ class RobinhoodRunTests(unittest.TestCase):
         self.assertIn("xxxx1111 Running in DRY mode", output)
         self.assertNotIn("xxxx2222 Running in DRY mode", output)
         self.assertNotIn("xxxx3333 Running in DRY mode", output)
+
+    def test_explicit_limit_order_never_attempts_market_order(self) -> None:
+        account = RobinhoodAccount("primary", "private-user", "workflow")
+        session = RobinhoodBearerSession("Bearer", "access", 4600.0)
+        client = _Client()
+        output = self.run_with(
+            account=account,
+            cache=_Cache(session),
+            auth=_Auth(session),
+            client=client,
+            order=_Order(dry=False, price=0.10),
+        )
+        self.assertEqual(client.order_calls, 1)
+        self.assertEqual(client.order_kwargs[0]["limitPrice"], 0.10)
+        self.assertEqual(client.order_kwargs[0]["timeInForce"], "gfd")
+        self.assertIn("@ 0.10: Success", output)
+
+    def test_dry_limit_order_reports_price_without_submitting(self) -> None:
+        account = RobinhoodAccount("primary", "private-user", "workflow")
+        session = RobinhoodBearerSession("Bearer", "access", 4600.0)
+        client = _Client()
+        output = self.run_with(
+            account=account,
+            cache=_Cache(session),
+            auth=_Auth(session),
+            client=client,
+            order=_Order(dry=True, price=0.10),
+        )
+        self.assertEqual(client.order_calls, 0)
+        self.assertIn("buy 1.0 of TEST at $0.10 limit", output)
+
+    def test_open_orders_are_read_only_and_scoped_to_selected_account(self) -> None:
+        account = RobinhoodAccount("primary", "private-user", "workflow")
+        session = RobinhoodBearerSession("Bearer", "access", 4600.0)
+        profile = [
+            {"account_number": "11111111", "portfolio_cash": "100.00", "brokerage_account_type": "individual"},
+            {"account_number": "22222222", "portfolio_cash": "100.00", "brokerage_account_type": "ira_roth"},
+        ]
+        client = _Client(
+            profile=profile,
+            open_orders=[{"instrument": "instrument-url", "side": "buy", "quantity": "1.0000", "state": "queued", "price": "0.1000"}],
+        )
+        output = self.run_with(
+            account=account,
+            cache=_Cache(session),
+            auth=_Auth(session),
+            client=client,
+            order=_Order(open_orders=True),
+        )
+        self.assertEqual(client.order_calls, 0)
+        self.assertIn("Open order: buy 1.0 TEST at $0.10 limit (queued)", output)
 
     def test_malformed_order_response_fails_closed(self) -> None:
         account = RobinhoodAccount("primary", "private-user", "workflow")

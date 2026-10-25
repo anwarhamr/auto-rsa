@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 import time
 from typing import TYPE_CHECKING, Any, cast
@@ -49,11 +50,13 @@ _SAFE_FAILURE_MESSAGES = frozenset(
         "Robinhood authentication response was invalid",
         "Robinhood authentication timed out",
         "Robinhood holdings response was invalid",
+        "Robinhood open orders response was invalid",
         "Robinhood login response was invalid",
         "Robinhood login was not accepted",
         "Robinhood order account routing was ambiguous",
         "Robinhood order account type is invalid",
         "Robinhood order account type is required",
+        "Robinhood order price is invalid",
         "Robinhood order response was invalid",
         "Robinhood order was rejected",
         "Robinhood quote response was invalid",
@@ -108,6 +111,11 @@ class RobinhoodClient:
     def order(**kwargs: object) -> object:
         """Submit one order through the active identity."""
         return rh.order(**kwargs)
+
+    @staticmethod
+    def open_stock_orders(account_number: str) -> object:
+        """Load open stock orders for one account."""
+        return rh.get_all_open_stock_orders(account_number=account_number)
 
 
 def _validated_profile(value: object) -> list[dict[str, Any]]:
@@ -191,7 +199,57 @@ def _load_order_account_type(environment: Mapping[str, str]) -> str:
     return account_type
 
 
-def _transactions_for_accounts(
+def _target_account(
+    accounts: list[str],
+    rho: Brokerage,
+    name: str,
+    target_account_type: str,
+) -> str:
+    target_accounts = [account for account in accounts if rho.get_account_types(name, account) == target_account_type]
+    if len(target_accounts) != 1:
+        raise RobinhoodRunError("Robinhood order account routing was ambiguous")
+    return target_accounts[0]
+
+
+def _open_orders_for_account(
+    client: RobinhoodClient,
+    accounts: list[str],
+    rho: Brokerage,
+    name: str,
+    *,
+    target_account_type: str,
+    ensure_active: Callable[[], None],
+) -> None:
+    account = _target_account(accounts, rho, name, target_account_type)
+    ensure_active()
+    orders = client.open_stock_orders(account)
+    if not isinstance(orders, list):
+        raise RobinhoodRunError("Robinhood open orders response was invalid")
+    if not orders:
+        print(f"{name}: No open stock orders in the selected account")
+        return
+    for item in orders:
+        if not isinstance(item, dict):
+            raise RobinhoodRunError("Robinhood open orders response was invalid")
+        instrument = item.get("instrument")
+        side = item.get("side")
+        quantity = item.get("quantity")
+        state = item.get("state")
+        price = item.get("price")
+        if not all(isinstance(value, str) and value for value in (instrument, side, quantity, state)):
+            raise RobinhoodRunError("Robinhood open orders response was invalid")
+        symbol = client.symbol(instrument)
+        if not isinstance(symbol, str) or not symbol:
+            raise RobinhoodRunError("Robinhood open orders response was invalid")
+        try:
+            display_quantity = float(quantity)
+            display_price = "market" if price is None else f"${float(price):.2f} limit"
+        except (TypeError, ValueError):
+            raise RobinhoodRunError("Robinhood open orders response was invalid") from None
+        print(f"{name}: Open order: {side} {display_quantity} {symbol} at {display_price} ({state})")
+
+
+def _transactions_for_accounts(  # ruff: ignore[too-many-branches]
     client: RobinhoodClient,
     accounts: list[str],
     name: str,
@@ -202,64 +260,86 @@ def _transactions_for_accounts(
     target_account_type: str,
     ensure_active: Callable[[], None],
 ) -> None:
-    target_accounts = [account for account in accounts if rho.get_account_types(name, account) == target_account_type]
-    if len(target_accounts) != 1:
-        raise RobinhoodRunError("Robinhood order account routing was ambiguous")
+    account = _target_account(accounts, rho, name, target_account_type)
+    requested_price = order_obj.get_price()
+    if isinstance(requested_price, bool) or not isinstance(requested_price, str | int | float):
+        raise RobinhoodRunError("Robinhood order price is invalid")
+    limit_price: float | None = None
+    if isinstance(requested_price, int | float):
+        limit_price = float(requested_price)
+        if not math.isfinite(limit_price) or limit_price <= 0:
+            raise RobinhoodRunError("Robinhood order price is invalid")
+    elif requested_price != "market":
+        raise RobinhoodRunError("Robinhood order price is invalid")
     for symbol in order_obj.get_stocks():
         print_and_discord(f"{name}: {order_obj.get_action()}ing {order_obj.get_amount()} of {symbol}", loop)
-        for account in target_accounts:
-            ensure_active()
-            print_account = mask_string(account)
-            if order_obj.get_dry():
-                print_and_discord(
-                    f"{name} {print_account} Running in DRY mode. Transaction would've been: {order_obj.get_action()} {order_obj.get_amount()} of {symbol}",
-                    loop,
-                )
-                continue
-            market_order = client.order(
-                symbol=symbol,
-                quantity=order_obj.get_amount(),
-                side=order_obj.get_action(),
-                account_number=account,
-                timeInForce="gfd",
-            )
-            if market_order is not None:
-                print_and_discord(
-                    f"{name}: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} in {print_account}: {_order_message(market_order)}",
-                    loop,
-                )
-                continue
+        ensure_active()
+        print_account = mask_string(account)
+        price_description = "market" if limit_price is None else f"${limit_price:.2f} limit"
+        if order_obj.get_dry():
             print_and_discord(
-                f"{name}: Market order was not accepted in {print_account}; trying limit order",
+                f"{name} {print_account} Running in DRY mode. Transaction would've been: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} at {price_description}",
                 loop,
             )
-            ensure_active()
-            asks = client.latest_price(symbol, "ask_price")
-            bids = client.latest_price(symbol, "bid_price")
-            if not isinstance(asks, list) or not asks or asks[0] is None or not isinstance(bids, list) or not bids or bids[0] is None:
-                raise RobinhoodRunError("Robinhood quote response was invalid")
-            try:
-                if order_obj.get_action() == "buy":
-                    price = round(max(float(bids[0]), float(asks[0])) + 0.01, 2)
-                else:
-                    price = round(min(float(bids[0]), float(asks[0])) - 0.01, 2)
-            except (TypeError, ValueError):
-                raise RobinhoodRunError("Robinhood quote response was invalid") from None
-            ensure_active()
+            continue
+        if limit_price is not None:
             limit_order = client.order(
                 symbol=symbol,
                 quantity=order_obj.get_amount(),
                 side=order_obj.get_action(),
-                limitPrice=price,
+                account_number=account,
+                limitPrice=limit_price,
+                timeInForce="gfd",
+            )
+            print_and_discord(
+                f"{name}: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} in {print_account} @ {limit_price:.2f}: {_order_message(limit_order)}",
+                loop,
+            )
+            continue
+        market_order = client.order(
+                symbol=symbol,
+                quantity=order_obj.get_amount(),
+                side=order_obj.get_action(),
                 account_number=account,
                 timeInForce="gfd",
             )
-            if limit_order is None:
-                raise RobinhoodRunError("Robinhood order was rejected")
+        if market_order is not None:
             print_and_discord(
-                f"{name}: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} in {print_account} @ {price}: {_order_message(limit_order)}",
+                f"{name}: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} in {print_account}: {_order_message(market_order)}",
                 loop,
             )
+            continue
+        print_and_discord(
+            f"{name}: Market order was not accepted in {print_account}; trying limit order",
+            loop,
+        )
+        ensure_active()
+        asks = client.latest_price(symbol, "ask_price")
+        bids = client.latest_price(symbol, "bid_price")
+        if not isinstance(asks, list) or not asks or asks[0] is None or not isinstance(bids, list) or not bids or bids[0] is None:
+            raise RobinhoodRunError("Robinhood quote response was invalid")
+        try:
+            if order_obj.get_action() == "buy":
+                price = round(max(float(bids[0]), float(asks[0])) + 0.01, 2)
+            else:
+                price = round(min(float(bids[0]), float(asks[0])) - 0.01, 2)
+        except (TypeError, ValueError):
+            raise RobinhoodRunError("Robinhood quote response was invalid") from None
+        ensure_active()
+        limit_order = client.order(
+            symbol=symbol,
+            quantity=order_obj.get_amount(),
+            side=order_obj.get_action(),
+            limitPrice=price,
+            account_number=account,
+            timeInForce="gfd",
+        )
+        if limit_order is None:
+            raise RobinhoodRunError("Robinhood order was rejected")
+        print_and_discord(
+            f"{name}: {order_obj.get_action()} {order_obj.get_amount()} of {symbol} in {print_account} @ {price}: {_order_message(limit_order)}",
+            loop,
+        )
 
 
 def _callbacks(*, interactive_allowed: bool, code_reader: Callable[[str, float], str]) -> RobinhoodAuthCallbacks:
@@ -291,7 +371,7 @@ def _load_sessions(
     return sessions, missing
 
 
-def robinhood_run(
+def robinhood_run(  # ruff: ignore[too-many-branches]
     order_obj: StockOrder,
     bot_obj: Bot | None = None,
     loop: asyncio.AbstractEventLoop | None = None,
@@ -354,6 +434,15 @@ def robinhood_run(
                 ensure_active()
                 if order_obj.get_holdings():
                     _holdings_for_accounts(api, rho, name, account_numbers, ensure_active)
+                elif order_obj.get_open_orders():
+                    _open_orders_for_account(
+                        api,
+                        account_numbers,
+                        rho,
+                        name,
+                        target_account_type=_load_order_account_type(environment),
+                        ensure_active=ensure_active,
+                    )
                 else:
                     _transactions_for_accounts(
                         api,

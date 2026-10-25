@@ -15,24 +15,33 @@ case "${1-}" in
     healthcheck)
         [ "$#" -eq 1 ] || { echo "Invalid healthcheck arguments" >&2; exit 2; }
         ;;
-    holdings)
+    holdings|open-orders)
         [ "$#" -eq 2 ] && [ "$2" = robinhood ] || {
-            echo "Only 'holdings robinhood' is accepted" >&2
+            echo "Only a supported read-only Robinhood command is accepted" >&2
             exit 2
         }
         ;;
     buy|sell)
-        [ "$#" -ge 4 ] && [ "$#" -le 5 ] && [ "$4" = robinhood ] || {
+        [ "$#" -ge 4 ] && [ "$4" = robinhood ] || {
             echo "Only one Robinhood brokerage command is accepted" >&2
             exit 2
         }
-        if [ "$#" -eq 5 ] && [ "$5" != true ] && [ "$5" != false ]; then
-            echo "The optional dry-run argument must be true or false" >&2
+        if [ "$#" -eq 7 ]; then
+            [ "$5" = limit ] && { [ "$7" = true ] || [ "$7" = false ]; } || {
+                echo "Limit orders require: limit <price> <true|false>" >&2
+                exit 2
+            }
+        elif [ "$#" -eq 4 ]; then
+            :
+        elif [ "$#" -eq 5 ] && { [ "$5" = true ] || [ "$5" = false ]; }; then
+            :
+        else
+            echo "Invalid Robinhood order arguments" >&2
             exit 2
         fi
         ;;
     *)
-        echo "Accepted commands: healthcheck, holdings robinhood, buy/sell <amount> <symbols> robinhood [true|false]" >&2
+        echo "Accepted commands: healthcheck, holdings/open-orders robinhood, buy/sell <amount> <symbols> robinhood [true|false] or limit <price> <true|false>" >&2
         exit 2
         ;;
 esac

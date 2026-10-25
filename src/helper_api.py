@@ -75,6 +75,7 @@ class StockOrder:  # ruff: ignore[too-many-public-methods]
         self.__notbrokers: list[BrokerInfo] = []  # List of brokerages to not use
         self.__dry: bool = True  # Dry run mode
         self.__holdings: bool = False  # Get holdings from enabled brokerages
+        self.__open_orders: bool = False  # Get open orders from enabled brokerages
         self.__logged_in: dict[
             str,
             Brokerage,
@@ -120,6 +121,10 @@ class StockOrder:  # ruff: ignore[too-many-public-methods]
         """Set the holdings flag."""
         self.__holdings = holdings
 
+    def set_open_orders(self, *, open_orders: bool) -> None:
+        """Set the open-orders flag."""
+        self.__open_orders = open_orders
+
     def set_logged_in(self, logged_in: "Brokerage", broker: str) -> None:
         """Set the logged in brokerage object for a specific broker."""
         self.__logged_in[broker] = logged_in
@@ -160,6 +165,10 @@ class StockOrder:  # ruff: ignore[too-many-public-methods]
         """Get the holdings flag."""
         return self.__holdings
 
+    def get_open_orders(self) -> bool:
+        """Get the open-orders flag."""
+        return self.__open_orders
+
     def get_logged_in(self, broker: str) -> "Brokerage":
         """Get the logged in brokerage object for a specific broker."""
         return self.__logged_in[broker]
@@ -179,8 +188,8 @@ class StockOrder:  # ruff: ignore[too-many-public-methods]
 
     def order_validate(self, *, pre_login: bool = False) -> ValueError | None:
         """Validate that order object is properly configured."""
-        # Check for required fields (doesn't apply to holdings)
-        if not self.__holdings:
+        # Check for required fields (doesn't apply to read-only requests)
+        if not self.__holdings and not self.__open_orders:
             if self.__action is None:
                 msg = "Action must be set"
                 raise ValueError(msg)
@@ -217,6 +226,7 @@ class StockOrder:  # ruff: ignore[too-many-public-methods]
                 Not Brokers: {','.join(str(b.name) for b in self.__notbrokers)}\n \
                 Dry: {self.__dry}\n \
                 Holdings: {self.__holdings}\n \
+                Open Orders: {self.__open_orders}\n \
                 Logged In: {self.__logged_in}"
 
 

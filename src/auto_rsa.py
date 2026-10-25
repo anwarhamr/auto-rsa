@@ -4,6 +4,7 @@
 
 # Import libraries
 import asyncio
+import math
 import os
 import sys
 import traceback
@@ -87,7 +88,7 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
     Functions are determined as: [broker_name] + <function_name>.
     So for example, fennel init -> fennel_init()
     """
-    if TRADING_DISABLED and not order_obj.get_holdings() and not order_obj.get_dry():
+    if TRADING_DISABLED and not order_obj.get_holdings() and not order_obj.get_open_orders() and not order_obj.get_dry():
         msg = "Live trading is disabled by TRADING_DISABLED"
         raise ValueError(msg)
     total_value = 0
@@ -252,15 +253,18 @@ def fun_run(  # ruff: ignore[complex-structure, too-many-branches, too-many-stat
     print_and_discord("All commands complete in all brokers", loop)
 
 
-def arg_parser(args: list[str]) -> StockOrder:  # ruff: ignore[complex-structure, too-many-branches]
+def arg_parser(args: list[str]) -> StockOrder:  # ruff: ignore[complex-structure, too-many-branches, too-many-statements]
     """Parse input arguments to create a StockOrder object."""
     args = [x.lower() for x in args]
     # Initialize objects
     stock_order = StockOrder()
     all_brokers = AllBrokersInfo()
-    # If first argument is holdings, set holdings to true
-    if args[0] == "holdings":
-        stock_order.set_holdings(holdings=True)
+    # If first argument is a read-only request, set its mode.
+    if args[0] in {"holdings", "open-orders"}:
+        if args[0] == "holdings":
+            stock_order.set_holdings(holdings=True)
+        else:
+            stock_order.set_open_orders(open_orders=True)
         # Next argument is brokers
         if args[1] == "all":
             stock_order.set_brokers(all_brokers.get_all())
@@ -282,7 +286,7 @@ def arg_parser(args: list[str]) -> StockOrder:  # ruff: ignore[complex-structure
                 if broker_enum:
                     stock_order.set_notbrokers(broker_enum)
         return stock_order
-    # Otherwise: action, amount, stock, broker, (optional) not broker, (optional) dry
+    # Otherwise: action, amount, stock, broker, (optional) limit price, (optional) dry
     if args[0] == "buy":
         stock_order.set_action("buy")
     elif args[0] == "sell":
@@ -311,6 +315,12 @@ def arg_parser(args: list[str]) -> StockOrder:  # ruff: ignore[complex-structure
             broker_enum = all_brokers.parse_input(broker)
             if broker_enum:
                 stock_order.set_notbrokers(broker_enum)
+    elif len(args) > 5 and args[4] == "limit":  # ruff: ignore[magic-value-comparison]
+        limit_price = float(args[5])
+        if not math.isfinite(limit_price) or limit_price <= 0:
+            msg = "Limit price must be positive"
+            raise ValueError(msg)
+        stock_order.set_price(limit_price)
     # If next argument is false, set dry to false
     if args[-1] == "false":
         stock_order.set_dry(dry=False)
@@ -351,7 +361,7 @@ def main(args: list[str]) -> None:  # ruff: ignore[complex-structure, too-many-b
         is_up_to_date()
         print()
         cli_order_obj = arg_parser(args)
-        if not cli_order_obj.get_holdings():
+        if not cli_order_obj.get_holdings() and not cli_order_obj.get_open_orders():
             print(f"Action: {cli_order_obj.get_action()}")
             print(f"Amount: {cli_order_obj.get_amount()}")
             print(f"Stock: {cli_order_obj.get_stocks()}")
