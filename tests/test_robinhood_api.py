@@ -7,6 +7,7 @@ from unittest import mock
 
 from src.brokerages import robinhood_api
 from src.brokerages.robinhood_api import RobinhoodRunError, robinhood_run
+from src.brokerages.robinhood_auth import RobinhoodAuthenticationError
 from src.brokerages.robinhood_credentials import RobinhoodAccount, RobinhoodPassword
 from src.brokerages.robinhood_session import RobinhoodBearerSession
 
@@ -103,6 +104,18 @@ class _Client:
 
 
 class RobinhoodRunTests(unittest.TestCase):
+    def test_diagnostics_allow_only_fixed_redacted_categories(self) -> None:
+        self.assertEqual(
+            robinhood_api._redacted_failure_message(RobinhoodAuthenticationError("Robinhood login was not accepted")),
+            "Robinhood login was not accepted",
+        )
+        secret = "broker-payload-must-never-escape"
+        self.assertEqual(
+            robinhood_api._redacted_failure_message(RobinhoodAuthenticationError(secret)),
+            "Robinhood operation failed; sensitive details suppressed",
+        )
+        self.assertNotIn(secret, robinhood_api._redacted_failure_message(RobinhoodAuthenticationError(secret)))
+
     def run_with(
         self,
         *,

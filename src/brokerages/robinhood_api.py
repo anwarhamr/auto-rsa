@@ -13,14 +13,19 @@ from typing import TYPE_CHECKING, Any, cast
 from dotenv import load_dotenv
 from robin_stocks import robinhood as rh
 
-from src.brokerages.robinhood_auth import VERIFICATION_TIMEOUT_SECONDS, RobinhoodAuthCallbacks, RobinhoodAuthenticator
+from src.brokerages.robinhood_auth import (
+    VERIFICATION_TIMEOUT_SECONDS,
+    RobinhoodAuthCallbacks,
+    RobinhoodAuthenticationError,
+    RobinhoodAuthenticator,
+)
 from src.brokerages.robinhood_credentials import (
     RobinhoodAccount,
     load_robinhood_accounts,
     load_robinhood_passwords,
     load_session_ttl,
 )
-from src.brokerages.robinhood_mfa import RobinhoodMFAUnavailableError, collect_robinhood_mfa_code
+from src.brokerages.robinhood_mfa import RobinhoodMFAError, RobinhoodMFAUnavailableError, collect_robinhood_mfa_code
 from src.brokerages.robinhood_session import RobinhoodBearerSession, RobinhoodSessionCache
 from src.helper_api import Brokerage, StockOrder, mask_string, print_all_holdings, print_and_discord
 
@@ -33,6 +38,40 @@ if TYPE_CHECKING:
 
 class RobinhoodRunError(RuntimeError):
     """A redacted Robinhood run failure."""
+
+
+_SAFE_FAILURE_MESSAGES = frozenset(
+    {
+        "Robinhood account profile validation failed",
+        "Robinhood authentication cancelled",
+        "Robinhood authentication request failed",
+        "Robinhood authentication requires an interactive local terminal",
+        "Robinhood authentication response was invalid",
+        "Robinhood authentication timed out",
+        "Robinhood holdings response was invalid",
+        "Robinhood login response was invalid",
+        "Robinhood login was not accepted",
+        "Robinhood order response was invalid",
+        "Robinhood order was rejected",
+        "Robinhood quote response was invalid",
+        "Robinhood session expired",
+        "Robinhood session state was invalid",
+        "Robinhood verification attempt limit reached",
+        "Robinhood verification request failed",
+        "Robinhood verification response was invalid",
+        "Robinhood verification was rejected",
+    },
+)
+_GENERIC_FAILURE_MESSAGE = "Robinhood operation failed; sensitive details suppressed"
+
+
+def _redacted_failure_message(error: Exception) -> str:
+    """Return only an explicitly allowlisted fixed diagnostic category."""
+    if isinstance(error, RobinhoodAuthenticationError | RobinhoodMFAError | RobinhoodRunError):
+        message = str(error)
+        if message in _SAFE_FAILURE_MESSAGES:
+            return message
+    return _GENERIC_FAILURE_MESSAGE
 
 
 class RobinhoodClient:
@@ -305,9 +344,10 @@ def robinhood_run(
                 raise
             finally:
                 auth.clear()
-    except Exception:
+    except Exception as error:
         auth.clear()
-        print("Robinhood operation failed; sensitive details suppressed")
-        raise RobinhoodRunError("Robinhood operation failed; sensitive details suppressed") from None
+        message = _redacted_failure_message(error)
+        print(message)
+        raise RobinhoodRunError(message) from None
     if order_obj.get_holdings():
         print_all_holdings(rho, loop)
