@@ -50,34 +50,30 @@ def _require_tmpfs(path: Path) -> None:
 
 def _read_masked(prompt: str, tty_path: str = "/dev/tty") -> str:
     """Read one value from a terminal while displaying masking characters."""
-    value: list[str] = []
-    with open(tty_path, "r+", encoding="utf-8", buffering=1) as terminal:
-        descriptor = terminal.fileno()
-        original = termios.tcgetattr(descriptor)
-        hidden = termios.tcgetattr(descriptor)
-        hidden[3] &= ~(termios.ECHO | termios.ECHONL)
-        terminal.write(prompt)
-        terminal.flush()
-        try:
-            termios.tcsetattr(descriptor, termios.TCSADRAIN, hidden)
-            while True:
-                character = terminal.read(1)
-                if character in {"\n", "\r", ""}:
-                    terminal.write("\n")
-                    break
-                if character == "\x03":
-                    raise KeyboardInterrupt
-                if character in {"\x08", "\x7f"}:
-                    if value:
-                        value.pop()
-                        terminal.write("\b \b")
-                    continue
-                value.append(character)
-                terminal.write("*")
-        finally:
-            termios.tcsetattr(descriptor, termios.TCSADRAIN, original)
-            terminal.flush()
-    return "".join(value)
+    value = bytearray()
+    descriptor = os.open(tty_path, os.O_RDWR | os.O_NOCTTY)
+    original = termios.tcgetattr(descriptor)
+    hidden = termios.tcgetattr(descriptor)
+    hidden[3] &= ~(termios.ECHO | termios.ECHONL | termios.ICANON)
+    os.write(descriptor, prompt.encode())
+    try:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, hidden)
+        while True:
+            character = os.read(descriptor, 1)
+            if character in {b"\n", b"\r", b""}:
+                os.write(descriptor, b"\n")
+                break
+            if character in {b"\x08", b"\x7f"}:
+                if value:
+                    value.pop()
+                    os.write(descriptor, b"\b \b")
+                continue
+            value.extend(character)
+            os.write(descriptor, b"*")
+    finally:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, original)
+        os.close(descriptor)
+    return value.decode()
 
 
 def main() -> int:
