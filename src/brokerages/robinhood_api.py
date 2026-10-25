@@ -246,6 +246,8 @@ def robinhood_run(
     monotonic: Callable[[], float] = time.monotonic,
 ) -> None:
     """Authenticate each Robinhood identity once, execute, and clear process state."""
+    if bot_obj is not None or loop is not None:
+        raise RobinhoodRunError("Robinhood operations are unavailable through Discord")
     load_dotenv()
     environment = os.environ if environ is None else environ
     accounts = load_robinhood_accounts(environment)

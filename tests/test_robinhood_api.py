@@ -189,13 +189,15 @@ class RobinhoodRunTests(unittest.TestCase):
         )
         self.assertEqual(auth.inputs[0][3:], ("654321", 50.0))
 
-    def test_totp_and_workflow_mfa_have_no_discord_input_path(self) -> None:
+    def test_robinhood_operations_have_no_direct_discord_path(self) -> None:
         account = RobinhoodAccount("primary", "private-user", "totp")
         session = RobinhoodBearerSession("Bearer", "access", 4600.0)
         auth = _Auth(session)
-        with self.assertRaisesRegex(RobinhoodRunError, "sensitive details suppressed"):
-            self.run_with(account=account, cache=_Cache(None), auth=auth, client=_Client(), bot=object())
+        for cache in (_Cache(None), _Cache(session)):
+            with self.subTest(cached=cache.session is not None), self.assertRaisesRegex(RobinhoodRunError, "unavailable through Discord"):
+                self.run_with(account=account, cache=cache, auth=auth, client=_Client(), bot=object())
         self.assertEqual(auth.authenticated, 0)
+        self.assertEqual(auth.activated, 0)
 
     def test_profile_failure_is_redacted_and_invalidates_cache(self) -> None:
         secret_user = "never-log-user"
